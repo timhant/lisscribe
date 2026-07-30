@@ -1,0 +1,37 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+
+    <!-- 发行元数据。Authors 与 Copyright 会烧进 exe 的文件属性，**须与 LICENSE 那行同名**：
+         三处不一致时，拿到二进制的人无从判断版权归谁。 -->
+    <Product>lisscribe</Product>
+    <Authors>Hant</Authors>
+    <Copyright>Copyright (c) 2026 Hant</Copyright>
+    <Version>0.1.0</Version>
+
+    <!-- 构建产物统一落到仓库根的 build\ 下，一个项目一间：build\<项目名>\<配置>\。
+         为什么非挪不可：默认的 bin\Debug\net10.0-windows\win-x64 与仓库根的 models\ 隔着四层，
+         配置里那句 "./models/sense-voice"（按 AppContext.BaseDirectory 展开，见 AsrModelPaths）
+         永远够不着，于是开发时只能靠环境变量 LISSCRIBE_MODEL_DIR 绕开——而绕开的，
+         恰恰是发行时唯一要走的那条路径，等于它从没被真程序跑过一次。
+         挪到 build\ 之后，把 models\ 放进输出目录旁边即可，开发与发行同一套布局。 -->
+    <BaseOutputPath>$(MSBuildThisFileDirectory)build\$(MSBuildProjectName)\</BaseOutputPath>
+
+    <!-- 砍掉 TFM 与 RID 两层目录：本仓库每个项目都只有一个目标框架、一个运行时标识，
+         那两层不区分任何东西，只是把 exe 往深里埋。
+         **改成多目标框架时必须把这两条删掉**，否则几份输出会互相覆盖。 -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- xunit.v3 测试项目跑在 Microsoft.Testing.Platform 上；`dotnet test` 默认走旧版
+         VSTest 桥接，不认得该项目类型——不报错，只静默报告「0 tests found」。此项对非
+         测试项目无副作用，故统一放在 Directory.Build.props，覆盖后续所有 *.Tests 项目
+         （Lisscribe.Platform.Tests、Lisscribe.App.Tests 等），避免每个测试项目重复踩坑。 -->
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+</Project>

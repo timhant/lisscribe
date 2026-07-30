@@ -1,0 +1,49 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sw?
+
+# OS specific
+.DS_Store
+
+# 模型权重绝不入库（许可原因，见 Global Constraints）
+models/
+*.onnx
+*.tar.bz2
+
+# .NET
+build/
+bin/
+obj/
+
+# 发布产物。self-contained，实测 163MB / 334 个文件，由 scripts/publish.ps1 生成。
+dist/
+*.user
+.vs/
+
+# 本地工具产物，不入库
+.codegraph/
+.taskmaster/
+.env.example
+
+# 运行期配置。真正生效的那份在 AppContext.BaseDirectory 下（build/… 已被忽略），
+# 仓库根这一份是跑测试或调试留下的散落物，入库只会覆盖别人机器上的热键设置。
+/config.json
+/config.json.bad

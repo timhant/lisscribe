@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- **下面两行少一行都编不过**：Lisscribe.App 是
+         SelfContained + win-x64，MSBuild 报 NETSDK1151「self-contained 可执行文件不能被
+         非 self-contained 的可执行文件引用」。测试宿主自己也是可执行文件，故必须跟齐。
+         顺带买到一件必需品：Avalonia 的原生依赖（libSkiaSharp / av_libglesv2）会被复制到
+         测试输出目录，本项目的真窗口测试才起得来。 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <!-- LibraryImport 生成的封送代码带 unsafe（SYSLIB1062）。本项目用 GetWindowRect /
+         SendMessage 做**独立于 Avalonia 的**取样口，与 Lisscribe.Platform.Tests 同此。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- AppWiringTests 要一个 SessionController，而它的看门狗吃 TimeProvider。 -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lisscribe.App\Lisscribe.App.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- **链接源文件，不是 ProjectReference**。组合根那条链路的测试要一个真的
+         SessionController，而它的九个平台接口的假实现早已写在 Lisscribe.Core.Tests 里。
+         直接 ProjectReference 过去编不过：xunit.v3 + Microsoft.Testing.Platform 给每个测试
+         项目各生成一个 Main，两个凑一起就是 CS0017 多入口点。链接源码没有这个问题，
+         代价是同一份假件在两个程序集里各编一份——它们是纯内存假件，无静态状态可争。
+
+         排除 FakesSelfTest.cs：那是钉假件自身行为的测试，属于 Core.Tests，
+         链过来只会让 App.Tests 的计数里混进不属于它的条目。 -->
+    <Compile Include="..\Lisscribe.Core.Tests\Fakes\*.cs"
+             Exclude="..\Lisscribe.Core.Tests\Fakes\FakesSelfTest.cs"
+             Link="Fakes\%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

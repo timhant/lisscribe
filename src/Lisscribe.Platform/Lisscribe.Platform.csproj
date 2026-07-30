@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lisscribe.Core\Lisscribe.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- INPUT / KEYBDINPUT 等原生结构体是 internal——它们不该出现在本程序集的公开面上，
+         但「INPUT 数组构造对不对」恰恰是本层唯一能自动化验证的东西。 -->
+    <InternalsVisibleTo Include="Lisscribe.Platform.Tests" />
+  </ItemGroup>
+</Project>

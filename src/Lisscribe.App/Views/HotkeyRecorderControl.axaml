@@ -1,0 +1,11 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Lisscribe.App.Views.HotkeyRecorderControl">
+  <!-- 录制期间这个按钮要吃下所有按键，故它必须能拿到焦点。
+       Focusable 默认就是 true，写出来是为了让「拿不到焦点就录不到键」这件事有个落点。 -->
+  <Button Name="RecordButton"
+          Focusable="True"
+          HorizontalAlignment="Stretch"
+          HorizontalContentAlignment="Center"
+          Click="OnRecordClicked" />
+</UserControl>

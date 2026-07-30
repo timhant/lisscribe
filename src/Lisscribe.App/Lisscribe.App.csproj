@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- LibraryImport 生成的封送代码带 unsafe（SYSLIB1062）。Lisscribe.Platform 同此。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- 可执行文件自身的图标（资源管理器、任务栏、Alt+Tab）。与托盘图标同一个文件，
+         但走的是两条完全不同的路：这一条编进 PE 的资源节，托盘那条是 avares 资源。
+         少了任一条，症状都是「图标没了」，而查起来的地方不一样。 -->
+    <ApplicationIcon>Assets/lisscribe.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 只为一件事：换档重启的端到端测试要拿真的单实例名字去占住那个互斥体，好让被测的
+         真 exe 走到「已有实例在跑」那条路上。名字若在测试里另抄一份，日后改名两边就悄悄
+         对不上——而对不上的后果是那条测试转而把真程序整个启起来（装全局钩子、出托盘图标）。
+         与 Lisscribe.Platform 同法，不为测试把成员改 public。 -->
+    <InternalsVisibleTo Include="Lisscribe.App.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="Serilog.Extensions.Logging.File" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lisscribe.Platform\Lisscribe.Platform.csproj" />
+    <ProjectReference Include="..\Lisscribe.Core\Lisscribe.Core.csproj" />
+  </ItemGroup>
+</Project>

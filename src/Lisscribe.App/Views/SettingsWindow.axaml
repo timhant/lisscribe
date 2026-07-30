@@ -1,0 +1,205 @@
+<Window
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Lisscribe.App.ViewModels"
+    xmlns:views="using:Lisscribe.App.Views"
+    x:Class="Lisscribe.App.Views.SettingsWindow"
+    x:DataType="vm:SettingsViewModel"
+    Title="lisscribe 设置"
+    Width="460"
+    SizeToContent="Height"
+    WindowStartupLocation="CenterScreen"
+    CanResize="False">
+
+    <StackPanel
+        Margin="16"
+        Spacing="12">
+
+        <TextBlock
+            Text="{Binding LoadWarning}"
+            Foreground="#FFB454"
+            TextWrapping="Wrap"
+            IsVisible="{Binding LoadWarning,
+            Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+        <!-- 一个 Grid 排到底，不分组。标签列固定 170，控件列吃掉其余宽度。
+        复选框排进第 1 列（它自带文字标签，第 0 列再写一遍就重复了），
+        这样也跟上面的输入框对成一条竖线。
+
+        录音存档那两项（saveAudio / saveDir）**刻意不在这里**：功能属 T1，眼下勾了不产生
+        任何文件。配置字段仍在 config.json 里原样往返，日后实现时把控件加回来即可。
+        界面上摆一个勾了没用的开关，比不摆更糟——已经害人白等过一次重启。 -->
+        <Grid
+            ColumnDefinitions="170,*"
+            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+            RowSpacing="6"
+            ColumnSpacing="12">
+
+            <TextBlock
+                Grid.Row="0"
+                Grid.Column="0"
+                Text="组合键"
+                VerticalAlignment="Center" />
+            <views:HotkeyRecorderControl
+                Grid.Row="0"
+                Grid.Column="1"
+                Name="Recorder"
+                DisplayText="{Binding HotkeyDisplay}" />
+
+            <TextBlock
+                Grid.Row="1"
+                Grid.Column="0"
+                Text="长按判定阈值（毫秒）"
+                VerticalAlignment="Center" />
+            <NumericUpDown
+                Grid.Row="1"
+                Grid.Column="1"
+                Value="{Binding HoldThresholdMs}"
+                Minimum="0"
+                Maximum="99999"
+                Increment="50"
+                FormatString="0" />
+
+            <TextBlock
+                Grid.Row="2"
+                Grid.Column="0"
+                Text="识别引擎"
+                VerticalAlignment="Center" />
+            <ComboBox
+                Grid.Row="2"
+                Grid.Column="1"
+                x:Name="EngineBox"
+                HorizontalAlignment="Stretch"
+                ItemsSource="{Binding Engines}"
+                SelectedItem="{Binding Engine}" />
+
+            <!-- 这一档能录多久。**紧贴下拉框、随选择当场变**，不是通用说明区。
+            上一版底部那行「哪些即时哪些要重启」的灰字被当噪声删掉过，删得对；
+            这条不同——60 秒掉到 25 秒是换档最扎眼的差别，而它原先界面上一个字都没有，
+            用户撞上去看到的是「话说了一半没了」。 -->
+            <TextBlock
+                Grid.Row="3"
+                Grid.Column="1"
+                Text="{Binding EngineCeilingHint}"
+                FontSize="11"
+                Opacity="0.65"
+                TextWrapping="Wrap" />
+
+            <TextBlock
+                Grid.Row="4"
+                Grid.Column="0"
+                Text="模型目录"
+                VerticalAlignment="Center" />
+            <TextBox
+                Grid.Row="4"
+                Grid.Column="1"
+                Text="{Binding ModelDir}" />
+
+            <!-- 权重不随发行包走（许可不允许），程序能给的只有一个地址；用可选中的文本，
+            照抄得出来才算给到了。 -->
+            <TextBlock
+                Grid.Row="5"
+                Grid.Column="0"
+                Text="模型下载"
+                VerticalAlignment="Center" />
+            <SelectableTextBlock
+                Grid.Row="5"
+                Grid.Column="1"
+                Text="{Binding ModelDownloadUrl}"
+                TextWrapping="Wrap"
+                VerticalAlignment="Center" />
+
+            <TextBlock
+                Grid.Row="6"
+                Grid.Column="0"
+                Text="当前麦克风"
+                VerticalAlignment="Center" />
+            <TextBlock
+                Grid.Row="6"
+                Grid.Column="1"
+                Text="{Binding CurrentDeviceName}"
+                VerticalAlignment="Center" />
+
+            <TextBlock
+                Grid.Row="7"
+                Grid.Column="0"
+                Text="上屏方式"
+                VerticalAlignment="Center" />
+            <!-- 选项走 ItemsSource 给字符串，**绝不能写成内联的 ComboBoxItem**：
+            SelectedItem 绑的是 string 属性，拿控件对象当选项则永不相等——
+            进来时框里空白，出去时把 "Avalonia.Controls.ComboBoxItem" 写回属性。 -->
+            <ComboBox
+                Grid.Row="7"
+                Grid.Column="1"
+                x:Name="OutputModeBox"
+                ItemsSource="{Binding OutputModes}"
+                SelectedItem="{Binding OutputMode}"
+                HorizontalAlignment="Stretch" />
+
+            <TextBlock
+                Grid.Row="8"
+                Grid.Column="0"
+                Text="末尾标点最多清理（字符）"
+                VerticalAlignment="Center" />
+            <NumericUpDown
+                Grid.Row="8"
+                Grid.Column="1"
+                Value="{Binding TrimPunctuationMaxChars}"
+                Minimum="0"
+                Maximum="99"
+                Increment="1"
+                FormatString="0" />
+
+            <TextBlock
+                Grid.Row="9"
+                Grid.Column="0"
+                Text="日志级别"
+                VerticalAlignment="Center" />
+            <ComboBox
+                Grid.Row="9"
+                Grid.Column="1"
+                x:Name="LogLevelBox"
+                ItemsSource="{Binding LogLevels}"
+                SelectedItem="{Binding LogLevel}"
+                HorizontalAlignment="Stretch" />
+
+            <CheckBox
+                Grid.Row="10"
+                Grid.Column="1"
+                Content="上屏后恢复剪贴板原内容"
+                IsChecked="{Binding RestoreClipboard}" />
+
+            <CheckBox
+                Grid.Row="11"
+                Grid.Column="1"
+                Content="清理句末标点"
+                IsChecked="{Binding TrimTrailingPunctuation}" />
+
+            <CheckBox
+                Grid.Row="12"
+                Grid.Column="1"
+                Content="开机自启"
+                IsChecked="{Binding AutoStart}" />
+        </Grid>
+
+        <TextBlock
+            Text="{Binding LastError}"
+            Foreground="#FF6B6B"
+            TextWrapping="Wrap"
+            IsVisible="{Binding LastError,
+            Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+        <StackPanel
+            Orientation="Horizontal"
+            HorizontalAlignment="Right"
+            Spacing="8">
+            <Button
+                Content="取消"
+                Click="OnCancelClicked" />
+            <Button
+                Content="保存"
+                Click="OnSaveClicked"
+                IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

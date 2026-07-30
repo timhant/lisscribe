@@ -1,0 +1,15 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Lisscribe.App.App"
+             RequestedThemeVariant="Dark">
+
+    <!-- FluentTheme 不是装饰：没有它，ProgressBar / TextBlock 找不到控件模板，
+    悬浮条量得出句柄却画不出任何内容（AvaloniaTestHost.TestApp 加它正是这个缘故）。
+
+    RequestedThemeVariant 写死 Dark：悬浮条的底色是 #CC1E1E1E、文字是白色（OverlayWindow.axaml
+    里写死的），跟着系统主题走只会在浅色主题下把控件默认色换成深色，白底黑字撞进深色底。
+    日后配置窗口若要跟随系统，该在那个窗口上单独设，别放开这一处。 -->
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>

@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    # 必须是 windows-latest。本项目全是 Windows-only 的 P/Invoke（低层键盘钩子、SendInput、
+    # SetWindowLongPtr），ubuntu runner 上连带 Lisscribe.Platform 的解决方案都编译不过。
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore lisscribe.sln
+
+      - name: Build
+        run: dotnet build lisscribe.sln --no-restore --configuration Release
+
+      # 确定性测试：每次 PR 都跑，不依赖任何外部资源。
+      #
+      # **三个过滤器一个都不能少**，计划里那份只写了 RequiresModel，照抄会得到一个开局就红的 CI：
+      #   RequiresModel   —— 要几百 MB 权重，下面单独一步跑。
+      #   RequiresDesktop —— 18 个类会建真窗口、抢前台、往桌面发合成输入。runner 上前台被别人
+      #                      占着时它们固定红，且互相之间也会抢（本机实测「整解决方案一起跑
+      #                      偶发整批红，按项目分两次跑才稳」）。
+      #   Benchmark       —— 性能取数，一次三分多钟，而 runner 的性能波动大到那组数没有意义。
+      - name: Test (deterministic)
+        run: >
+          dotnet test lisscribe.sln --no-build --configuration Release
+          -- --filter-not-trait "Category=RequiresModel"
+          --filter-not-trait "Category=RequiresDesktop"
+          --filter-not-trait "Category=Benchmark"
+          --report-trx --report-trx-filename deterministic.trx
+
+      # 权重不入 Git（体积 + 许可）。缓存未命中时下载；下载失败也不让 CI 变红 ——
+      # 相关测试会自行 Skip（Assert.SkipUnless(ModelFixture.IsAvailable, ...)）。
+      - name: Cache SenseVoice model
+        id: sense-voice-cache
+        uses: actions/cache@v4
+        with:
+          path: models/sense-voice
+          key: sense-voice-int8-2024-07-17-v1
+
+      - name: Cache Qwen3-ASR model
+        id: qwen3-cache
+        uses: actions/cache@v4
+        with:
+          path: models/qwen3-asr
+          key: qwen3-asr-0.6B-int8-2026-03-25-v1
+
+      # 走我们自己的 Windows 脚本而不是那个 .sh：CI 因此顺带成了 fetch-models.ps1 的回归覆盖，
+      # 而它正是干净机器上用户要跑的那一个。
+      - name: Fetch SenseVoice model
+        if: steps.sense-voice-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: pwsh scripts/fetch-models.ps1 -Engine sense-voice
+
+      - name: Fetch Qwen3-ASR model
+        if: steps.qwen3-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: pwsh scripts/fetch-models.ps1 -Engine qwen3
+
+      # 模型测试与确定性那批分开跑。**这里也要排除 Benchmark** ——
+      # 它同时带着 RequiresModel 这个 trait，只写 --filter-trait 会把它一起捞进来。
+      - name: Test (model quality)
+        continue-on-error: true
+        run: >
+          dotnet test lisscribe.sln --no-build --configuration Release
+          -- --filter-trait "Category=RequiresModel"
+          --filter-not-trait "Category=Benchmark"
+          --report-trx --report-trx-filename model.trx
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/*.trx'

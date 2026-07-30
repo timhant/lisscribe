@@ -1,0 +1,95 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Lisscribe.App.ViewModels"
+        x:Class="Lisscribe.App.Views.OverlayWindow"
+        x:DataType="vm:OverlayViewModel"
+        Width="320" Height="48"
+        SystemDecorations="None"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        CanResize="False"
+        TransparencyLevelHint="Transparent">
+
+    <!-- **窗口是块透明画布，用户看得见的只有里面那颗胶囊。**
+
+    Width / Height 是 DIP，Reposition() 拿它们去算物理落点。丢了这两个值，
+    Width 变成 NaN，而 .NET 的浮点转整数是饱和的（(int)NaN == 0，实测），于是宽高算成 0、
+    边距仍是 16，落点变成工作区右下角**顶点减一个边距**，屏上只剩右下角 16×16 一小块
+    ——不会抛，只会「指示器几乎看不见了」。
+
+    这两个数**不能照胶囊的大小写**：Windows 的最小窗口尺寸是 SM_CXMIN=136 / SM_CYMIN=39
+    （实测），矮于它就被系统夹上去，Avalonia 再把夹后的真尺寸写回 Width/Height——
+    照 30 DIP 声明的实测后果是读回 39.33、落点差 14 DIP。理由与实测见 OverlayWindow 的常量注释。
+    OverlayWindowStylingTests.TheOverlayKeepsItsDeclaredDipSize 同时钉住这两个数与胶囊的高度。 -->
+    <Border x:Name="Pill"
+            Background="#E61E1E1E"
+            CornerRadius="15"
+            Width="{Binding PillWidthDip}"
+            Height="30"
+            Padding="12,0"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Bottom">
+
+        <!-- 中间那列是 *，两侧 Auto：状态点贴左、指示器贴右，多出来的余量落进文字这一列。
+        **不能三列都写 Auto** —— 那样宽度就随内容走，而「录音中」与「识别中」实测差 2 DIP
+        （汉字并非等宽），两态大小就不一样了。宽度由 PillWidthDip 定死，见那里的注释。
+        文字列有界，TextTrimming 的省略号才生效。
+
+        右下对齐意味着胶囊的右下角就是窗口的右下角，
+        故 Reposition() 算的那 16 DIP 边距对胶囊仍然精确。 -->
+        <Grid ColumnDefinitions="Auto,*,Auto">
+
+            <!-- 状态点。颜色即三态（绿 / 黄 / 红），与右侧的柱子同源。 -->
+            <Ellipse Grid.Column="0"
+                     x:Name="StatusDot"
+                     Width="8" Height="8"
+                     Fill="{Binding BarBrush}"
+                     VerticalAlignment="Center" />
+
+            <TextBlock Grid.Column="1"
+                       x:Name="MessageText"
+                       Text="{Binding DisplayText}"
+                       Margin="8,0"
+                       MaxWidth="240"
+                       Foreground="#F2FFFFFF"
+                       FontSize="12"
+                       TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" />
+
+            <!-- 录音中：七根柱子组成的电平表，最新的一格在最右（见 OverlayViewModel 的 _barHeights）。
+            高度走对数刻度——直接拿线性 RMS 画，大声说话也只涨到两成。 -->
+            <StackPanel Grid.Column="2"
+                        x:Name="VolumeStrip"
+                        Orientation="Horizontal"
+                        Spacing="2"
+                        Height="14"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding IsVolumeVisible}">
+                <Rectangle Width="3" Height="{Binding Bar0Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+                <Rectangle Width="3" Height="{Binding Bar1Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+                <Rectangle Width="3" Height="{Binding Bar2Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+                <Rectangle Width="3" Height="{Binding Bar3Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+                <Rectangle Width="3" Height="{Binding Bar4Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+                <Rectangle Width="3" Height="{Binding Bar5Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+                <Rectangle x:Name="VolumeBar" Width="3" Height="{Binding Bar6Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
+            </StackPanel>
+
+            <!-- 识别中：细一条不确定进度。与柱子同占第 2 列，两者互斥（IsVolumeVisible /
+            IsIndeterminate 都由 State 单独决定，不会同时为真）。
+
+            **MinWidth="0" 少不得。** Fluent 主题给 ProgressBar 的 MinWidth 是 200，它压过
+            这里写的 Width——实测胶囊在识别态被撑到 293 DIP，而录音态只有 117。
+            宽度取 33，与左边那七根柱子（7×3 + 6×2）分毫不差，两态因此一样大。 -->
+            <ProgressBar Grid.Column="2"
+                         x:Name="IndeterminateBar"
+                         Width="33" Height="3"
+                         MinWidth="0" MinHeight="0"
+                         IsIndeterminate="True"
+                         Foreground="{Binding BarBrush}"
+                         VerticalAlignment="Center"
+                         IsVisible="{Binding IsIndeterminate}" />
+        </Grid>
+    </Border>
+</Window>

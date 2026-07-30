@@ -1,0 +1,39 @@
+<Window
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="Lisscribe.App.Views.RestartConfirmWindow"
+    Title="lisscribe"
+    Width="440"
+    SizeToContent="Height"
+    WindowStartupLocation="CenterScreen"
+    CanResize="False"
+    Topmost="True">
+
+    <!-- Topmost 是必需的，不是讲究：本程序没有主窗口，这个窗口弹出来时用户多半正盯着
+    别的应用（他刚从配置窗回去）。不置顶就等于弹在所有窗口后面，与没弹一样。 -->
+    <StackPanel
+        Margin="20"
+        Spacing="16">
+
+        <TextBlock
+            x:Name="MessageText"
+            TextWrapping="Wrap" />
+
+        <!-- 「稍后重启」排在左边并接住 Esc：重启是打断性操作，默认不该是它。
+        两个按钮都不设 IsDefault——盲敲一次回车就重启，那是最容易误触的形状。 -->
+        <StackPanel
+            Orientation="Horizontal"
+            HorizontalAlignment="Right"
+            Spacing="8">
+            <Button
+                x:Name="LaterButton"
+                Content="稍后重启"
+                IsCancel="True"
+                Click="OnLaterClicked" />
+            <Button
+                x:Name="RestartButton"
+                Content="立即重启"
+                Click="OnRestartClicked" />
+        </StackPanel>
+    </StackPanel>
+</Window>
