@@ -6,8 +6,10 @@
 所以本地永远测不出来。**本项目已经因此在另一台机器上栽过一次**（见 C 组）。
 
 准备：在开发机跑 `powershell -ExecutionPolicy Bypass -File scripts\publish.ps1`，
-把 `dist\` 整个拷到目标机器。（**别写成 `pwsh`**：PowerShell 7 要另装，
+把 `dist\lisscribe-<版本>-win-x64.zip` 拷到目标机器解压。（**别写成 `pwsh`**：PowerShell 7 要另装，
 而这套脚本的服务对象恰恰是只有 5.1 的干净机器。）
+
+拿 zip 而不是拷目录，验的才是用户真正会拿到的那个东西——包括解压后目录结构对不对。
 
 ---
 

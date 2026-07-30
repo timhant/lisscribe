@@ -33,8 +33,10 @@ build/
 bin/
 obj/
 
-# 发布产物。self-contained，实测 163MB / 334 个文件，由 scripts/publish.ps1 生成。
+# 发布产物。self-contained，实测 163MB / 337 个文件，由 scripts/publish.ps1 生成，
+# 同处还有打好的发行 zip。
 dist/
+*.zip
 *.user
 .vs/
 

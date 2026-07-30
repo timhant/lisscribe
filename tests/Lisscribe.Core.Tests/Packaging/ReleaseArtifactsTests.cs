@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 using Lisscribe.Core.Asr;
 using Xunit;
@@ -201,6 +202,122 @@ public sealed class ReleaseArtifactsTests
         var ignore = File.ReadAllLines(InRepo(".gitignore"));
 
         Assert.Contains(ignore, line => line.Trim() is "dist/" or "dist");
+
+        // 发行 zip 与 dist 同处一地、同样上百 MB，一并挡住。
+        Assert.Contains(ignore, line => line.Trim() is "*.zip");
+    }
+
+    /// <summary>
+    /// 发布脚本要把整份产物压成**一个**归档，那才是能挂到 Release 上、能交给别人的东西。
+    ///
+    /// <para>
+    /// **不许用 <c>Compress-Archive</c>**：Windows PowerShell 5.1 的实现把条目名写成反斜杠
+    /// （实测 337 个条目 337 个反斜杠、0 个正斜杠），而 ZIP 规范要求正斜杠。Windows 资源管理器
+    /// 与 7-Zip 容忍这种包，换到 macOS / Linux 解压就摊成一堆名字里带 <c>\</c> 的文件，目录结构没了。
+    /// <c>ZipFile.CreateFromDirectory</c> 也一样——Windows PowerShell 5.1 跑在 .NET Framework 上，
+    /// 那一版按 <c>Path.DirectorySeparatorChar</c> 拼条目名。故两个都不能用，只能自己
+    /// 逐个建条目并把分隔符换成 <c>/</c>。
+    /// </para>
+    /// <para>
+    /// 判的是「有没有**调用**它们」——注释行里提名字不算，
+    /// 否则脚本里那句「不用 Compress-Archive」的说明会把自己判红。
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("Compress-Archive")]
+    [InlineData("CreateFromDirectory")]
+    public void ThePublishScript_DoesNotUseTheApisThatWriteBackslashEntryNames(string api)
+    {
+        var script = File.ReadAllText(InRepo("scripts/publish.ps1"));
+
+        var call = Regex.Match(script, $@"(?m)^(?!\s*#).*{Regex.Escape(api)}");
+
+        Assert.False(call.Success, $"这一行会写出反斜杠条目名：{call.Value.Trim()}");
+    }
+
+    /// <summary>
+    /// **真开包验**：条目名一律正斜杠，四份许可在里面，模型权重不在里面。
+    ///
+    /// <para>
+    /// 预言机是打好的那个 zip 本身，与生成它的脚本无关——只验脚本文本的话，
+    /// 「脚本看着对、包却是错的」这一格永远查不出来（本条就是这么发现反斜杠那个坑的）。
+    /// 没打过包时跳过：CI 不跑发布。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheProducedArchive_UsesForwardSlashes_AndCarriesTheLicencesButNoWeights()
+    {
+        var archive = Directory.Exists(InRepo("dist"))
+            ? Directory.EnumerateFiles(InRepo("dist"), "*.zip").FirstOrDefault()
+            : null;
+
+        Assert.SkipWhen(archive is null, "dist 下没有发行包，先跑 scripts\\publish.ps1");
+
+        using var zip = ZipFile.OpenRead(archive!);
+        var names = zip.Entries.Select(entry => entry.FullName).ToArray();
+
+        Assert.DoesNotContain(names, name => name.Contains('\\'));
+
+        var root = Path.GetFileNameWithoutExtension(archive!);
+
+        foreach (var required in (string[])[
+            "LICENSE", "THIRD-PARTY-NOTICES.md",
+            "licenses/Apache-2.0.txt", "licenses/ANGLE-LICENSE.txt",
+            "models/README.txt", "Lisscribe.App.exe", "onnxruntime.dll", "sherpa-onnx-c-api.dll"])
+        {
+            Assert.Contains($"{root}/{required}", names);
+        }
+
+        // 权重许可不允许随包分发，且包会因此涨到 1GB 以上。
+        Assert.DoesNotContain(names, name => name.EndsWith(".onnx", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// **包名里的版本号必须取自 <c>Directory.Build.props</c>，不许在脚本里另写一份。**
+    ///
+    /// <para>
+    /// 两处各写各的，早晚出现「zip 叫 0.1.0、里面的 exe 报 0.2.0」——而拿到包的人只信文件名，
+    /// 报错时会照着错的版本去查。判据是脚本里**不出现**那个版本字面量：
+    /// 期望值取自 props，与被测的脚本无关。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheArchiveName_TakesItsVersionFromTheBuildProps_NotAHardcodedCopy()
+    {
+        var script = File.ReadAllText(InRepo("scripts/publish.ps1"));
+
+        Assert.Contains("Directory.Build.props", script);
+        Assert.DoesNotContain(DeclaredVersion(), script);
+    }
+
+    /// <summary>
+    /// 包名要说清这是给哪个平台的：本项目只出 win-x64，而下载页上光有版本号看不出这一点。
+    ///
+    /// <para>
+    /// 断言挑的是 <c>-win-x64"</c>（包名字符串的结尾），不是裸的 <c>win-x64</c>——后者在
+    /// <c>--runtime win-x64</c> 那一行里早就有了，拿它当判据这条测试从写下来就是绿的。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheArchiveName_SaysWhichPlatformItIsFor()
+    {
+        var script = File.ReadAllText(InRepo("scripts/publish.ps1"));
+
+        Assert.Contains("-win-x64\"", script);
+        Assert.Contains(".zip\"", script);
+    }
+
+    /// <summary>
+    /// <c>Directory.Build.props</c> 里声明的版本号。发行包的名字得跟它一致。
+    /// </summary>
+    private static string DeclaredVersion()
+    {
+        var props = File.ReadAllText(InRepo("Directory.Build.props"));
+        var version = Regex.Match(props, @"<Version>([^<]+)</Version>");
+
+        Assert.True(version.Success, "Directory.Build.props 里没有 <Version>，发行包无从命名");
+
+        return version.Groups[1].Value;
     }
 
     /// <summary>

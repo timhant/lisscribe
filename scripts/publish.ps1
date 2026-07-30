@@ -20,9 +20,23 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$outputPath = if ([System.IO.Path]::IsPathRooted($Output)) { $Output } else { Join-Path $repoRoot $Output }
+$outputRoot = if ([System.IO.Path]::IsPathRooted($Output)) { $Output } else { Join-Path $repoRoot $Output }
 
-Remove-Item -Recurse -Force $outputPath -ErrorAction SilentlyContinue
+# 版本号只有一个出处。**别在这儿另写一份**：两处各写各的，早晚出现「zip 名上是一个版本、
+# 里面的 exe 报另一个」，而拿到包的人只信文件名，报错时会照着错的版本去查。
+[xml]$props = Get-Content -LiteralPath (Join-Path $repoRoot 'Directory.Build.props') -Encoding UTF8
+$version = ($props.Project.PropertyGroup | Where-Object { $_.Version }).Version
+
+if (-not $version) {
+    throw 'Directory.Build.props 里没有 <Version>，发行包无从命名。'
+}
+
+# 解压出来是一个带名字的目录，不是把三百多个文件铺进用户的下载文件夹。
+$packageName = "lisscribe-$version-win-x64"
+$outputPath = Join-Path $outputRoot $packageName
+$archivePath = Join-Path $outputRoot "$packageName.zip"
+
+Remove-Item -Recurse -Force $outputRoot -ErrorAction SilentlyContinue
 
 & dotnet publish (Join-Path $repoRoot 'src\Lisscribe.App\Lisscribe.App.csproj') `
     --configuration $Configuration `
@@ -105,6 +119,43 @@ $modelsReadme = @'
 # 换台机器打开就是乱码。
 Set-Content -Path (Join-Path $outputPath 'models\README.txt') -Value $modelsReadme -Encoding utf8
 
+# 压成一个归档，那才是能挂到 Release 上、能发给别人的东西。
+# 条目名统一加上 $packageName 前缀：解压后是一个目录，而不是把三百多个文件铺进下载文件夹。
+#
+# **条目名必须用正斜杠，而现成的两个 API 都不行**：Windows PowerShell 5.1 跑在 .NET Framework
+# 上，Compress-Archive 与 ZipFile.CreateFromDirectory 写出来的都是反斜杠（实测 337 个条目全是）。
+# Windows 资源管理器与 7-Zip 忍得下，换到 macOS / Linux 解压就摊成一堆名字里带 \ 的文件，
+# 目录结构整个没了。故这里逐个建条目，自己把分隔符换掉。有测试开包验这一点。
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
+
+$archive = [System.IO.Compression.ZipFile]::Open(
+    $archivePath, [System.IO.Compression.ZipArchiveMode]::Create)
+
+try {
+    foreach ($file in Get-ChildItem -LiteralPath $outputPath -Recurse -File) {
+        $relative = $file.FullName.Substring($outputPath.Length + 1).Replace('\', '/')
+
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $archive,
+            $file.FullName,
+            "$packageName/$relative",
+            [System.IO.Compression.CompressionLevel]::Optimal)
+    }
+}
+finally {
+    $archive.Dispose()
+}
+
+if (-not (Test-Path -LiteralPath $archivePath)) {
+    throw "打包失败：没有生成 $archivePath。"
+}
+
+$archiveSizeMb = [math]::Round((Get-Item -LiteralPath $archivePath).Length / 1MB, 1)
+
 Write-Host ""
 Write-Host "发布完成：$outputPath"
+Write-Host "发行包：  $archivePath（$archiveSizeMb MB）"
 Write-Host "下一步：按 docs\clean-machine-checklist.md 在一台干净机器上验收。"
