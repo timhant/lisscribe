@@ -5,15 +5,24 @@ Windows 上的**纯离线**语音输入工具。按住热键说话，松开后�
 
 ## 快速开始
 
-目前没有预编译包，请自行构建。
+从 [Releases](https://github.com/timhant/lisscribe/releases) 下载 `lisscribe-<版本>-win-x64.zip`，
+**不必装 .NET**，运行时已随包。
 
-1. 装 [.NET 10 SDK](https://dotnet.microsoft.com/download)
-2. 取模型：`powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1`
-3. 跑：`dotnet run --project src/Lisscribe.App`
+1. 解压到任意目录
+2. 按包里 `models\README.txt` 的说明下载模型放进 `models\`（**权重不随包分发**）
+3. 双击 `Lisscribe.App.exe`
 4. 按住 `Ctrl + Alt + Space` 说话，松开上屏
 
 程序常驻托盘。右键托盘图标可以打开配置窗、暂停热键、打开日志与模型目录。
 热键、上屏方式、录音时长等都在配置窗里改。
+
+## 从源码跑
+
+1. 装 [.NET 10 SDK](https://dotnet.microsoft.com/download)
+2. 取模型：`powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1`
+3. 跑：`dotnet run --project src/Lisscribe.App`
+
+自己出发行包：`powershell -ExecutionPolicy Bypass -File scripts\publish.ps1`，产物在 `dist\`。
 
 ## 选哪档模型
 
