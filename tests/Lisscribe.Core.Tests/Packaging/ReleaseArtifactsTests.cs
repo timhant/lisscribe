@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Lisscribe.Core.Asr;
 using Xunit;
 
@@ -19,12 +20,65 @@ public sealed class ReleaseArtifactsTests
 {
     [Theory]
     [InlineData("LICENSE")]
+    [InlineData("THIRD-PARTY-NOTICES.md")]
+    [InlineData("licenses/Apache-2.0.txt")]
+    [InlineData("licenses/ANGLE-LICENSE.txt")]
     [InlineData(".github/workflows/ci.yml")]
     [InlineData("scripts/publish.ps1")]
     [InlineData("scripts/fetch-models.ps1")]
     [InlineData("docs/clean-machine-checklist.md")]
     public void TheReleaseArtifactsExist(string relativePath) =>
         Assert.True(File.Exists(InRepo(relativePath)), $"缺少 {relativePath}");
+
+    /// <summary>
+    /// 每个直接依赖都必须在第三方声明里被点名。
+    ///
+    /// <para>
+    /// <b>受检范围取自各 <c>.csproj</c> 的 <c>PackageReference</c>，不取自被测的那份声明</b>——
+    /// 让声明自己划定该声明谁，加一个依赖忘了写进去它照样绿。
+    /// </para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryPackageTheAppShips))]
+    public void TheThirdPartyNotices_NameEveryDirectDependency(string package) =>
+        Assert.Contains(package, File.ReadAllText(InRepo("THIRD-PARTY-NOTICES.md")));
+
+    /// <summary>
+    /// 声明里必须三种许可都在场。少写一种就是把一批组件的义务漏掉：
+    /// sherpa-onnx 与 Serilog 系是 Apache-2.0，Avalonia 带的 ANGLE 原生包是 BSD-3-Clause，
+    /// 其余是 MIT。
+    /// </summary>
+    [Theory]
+    [InlineData("MIT")]
+    [InlineData("Apache-2.0")]
+    [InlineData("BSD-3-Clause")]
+    public void TheThirdPartyNotices_CoverEveryLicenceInTheBundle(string licence) =>
+        Assert.Contains(licence, File.ReadAllText(InRepo("THIRD-PARTY-NOTICES.md")));
+
+    /// <summary>
+    /// **Apache-2.0 与 BSD 两份全文必须真的随包走，不能只给个链接。**
+    /// Apache-2.0 第 4 条明写分发时须附许可副本，BSD 亦要求在分发材料中重述条款与免责声明。
+    /// 用长度加正文关键词判：只写一行链接的「许可文件」过不了这一关。
+    /// </summary>
+    [Theory]
+    [InlineData("licenses/Apache-2.0.txt", "TERMS AND CONDITIONS", 8000)]
+    [InlineData("licenses/ANGLE-LICENSE.txt", "Redistribution and use", 1000)]
+    public void TheBundledLicenceTexts_AreTheWholeThing(string relativePath, string marker, int minimumLength)
+    {
+        var text = File.ReadAllText(InRepo(relativePath));
+
+        Assert.Contains(marker, text);
+        Assert.True(text.Length >= minimumLength, $"{relativePath} 只有 {text.Length} 字符，不像是许可全文");
+    }
+
+    /// <summary>
+    /// 发布脚本得真把这几份拷进产物里——留在仓库里不随包走，等于没做。
+    /// </summary>
+    [Theory]
+    [InlineData("THIRD-PARTY-NOTICES.md")]
+    [InlineData("licenses")]
+    public void ThePublishScript_ShipsTheLicenceMaterial(string token) =>
+        Assert.Contains(token, File.ReadAllText(InRepo("scripts/publish.ps1")));
 
     /// <summary>
     /// **CI 必须同时排除 <c>RequiresDesktop</c> 与 <c>Benchmark</c>。**
@@ -85,6 +139,57 @@ public sealed class ReleaseArtifactsTests
     [InlineData("Lisscribe.App.exe")]
     public void ThePublishScript_VerifiesTheNativeDependenciesCameOut(string fileName) =>
         Assert.Contains(fileName, File.ReadAllText(InRepo("scripts/publish.ps1")));
+
+    /// <summary>
+    /// 第三方声明里点到的原生库文件名，得是**包里真有的那个名字**。
+    /// ANGLE 在 Avalonia 的包里叫 <c>av_libglesv2.dll</c>，不叫上游的 <c>libGLESv2.dll</c>——
+    /// 写错了，拿着声明去核对的人会以为这条根本不适用。
+    /// </summary>
+    [Fact]
+    public void TheThirdPartyNotices_CallTheAngleLibraryByTheNameItShipsUnder()
+    {
+        var notices = File.ReadAllText(InRepo("THIRD-PARTY-NOTICES.md"));
+
+        Assert.Contains("av_libglesv2.dll", notices);
+        Assert.DoesNotContain("libGLESv2.dll", notices);
+    }
+
+    /// <summary>
+    /// Apache-2.0 那一栏得点出**包里哪两个文件**属于它。只写包名的话，
+    /// 拿着一堆 DLL 的人对不上号——而这两个恰恰是发行包里体积最大、最引人问的东西。
+    /// </summary>
+    [Theory]
+    [InlineData("onnxruntime.dll")]
+    [InlineData("sherpa-onnx-c-api.dll")]
+    public void TheThirdPartyNotices_NameTheNativeBinariesThatCarryTheApacheLicence(string fileName) =>
+        Assert.Contains(fileName, File.ReadAllText(InRepo("THIRD-PARTY-NOTICES.md")));
+
+    /// <summary>
+    /// **面向用户的文档里不许教 <c>pwsh</c>。**
+    ///
+    /// <para>
+    /// PowerShell 7 要另装，干净的 Windows 机器上只有 5.1，敲 <c>pwsh</c> 得到的是
+    /// 「无法将“pwsh”项识别为 cmdlet」——用户卡在第二步，且那句报错跟语音输入毫无关系。
+    /// 而 5.1 默认的执行策略是 Restricted，直接跑 <c>.ps1</c> 一样被拦，故须带
+    /// <c>-ExecutionPolicy Bypass -File</c>。CI 不在此列：runner 上 pwsh 是有的。
+    /// </para>
+    /// <para>
+    /// 判的是「<b>拿 pwsh 去跑某个 .ps1</b>」这个动作，不是「文中出现过 pwsh 四个字母」——
+    /// 后者会把「别写成 pwsh」这类警示语本身也判红。
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("README.md")]
+    [InlineData("docs/clean-machine-checklist.md")]
+    public void TheUserFacingDocs_InvokeScriptsInAWayStockWindowsCanRun(string relativePath)
+    {
+        var text = File.ReadAllText(InRepo(relativePath));
+
+        var teachesPwsh = Regex.Match(text, @"pwsh[^\r\n`]*\.ps1");
+        Assert.False(teachesPwsh.Success, $"这句会让干净 Windows 上的用户卡住：{teachesPwsh.Value}");
+
+        Assert.Contains("-ExecutionPolicy Bypass -File", text);
+    }
 
     /// <summary>
     /// 发布产物目录必须被 git 忽略：self-contained 的 `dist\` 有上百 MB、几百个文件，
@@ -148,6 +253,27 @@ public sealed class ReleaseArtifactsTests
         }
 
         Assert.Equal<byte[]>([0xEF, 0xBB, 0xBF], head);
+    }
+
+    /// <summary>
+    /// 应用真正带出去的那些包：从 <c>src\</c> 下每个 <c>.csproj</c> 里读 <c>PackageReference</c>。
+    /// 测试项目的依赖不算——它们不进发行包。
+    /// </summary>
+    public static TheoryData<string> EveryPackageTheAppShips()
+    {
+        var names = Directory
+            .EnumerateFiles(InRepo("src"), "*.csproj", SearchOption.AllDirectories)
+            .SelectMany(csproj => Regex.Matches(
+                File.ReadAllText(csproj), """<PackageReference\s+Include="([^"]+)"""))
+            .Select(match => match.Groups[1].Value)
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        // 一个都没读到时，下面那条测试会「零用例通过」——静默的空覆盖，正是这里要防的。
+        Assert.NotEmpty(names);
+
+        return [.. names];
     }
 
     public static TheoryData<string> EveryRequiredModelFileName() =>

@@ -8,7 +8,7 @@ Windows 上的**纯离线**语音输入工具。按住热键说话，松开后�
 目前没有预编译包，请自行构建。
 
 1. 装 [.NET 10 SDK](https://dotnet.microsoft.com/download)
-2. 取模型：`pwsh scripts/fetch-models.ps1`
+2. 取模型：`powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1`
 3. 跑：`dotnet run --project src/Lisscribe.App`
 4. 按住 `Ctrl + Alt + Space` 说话，松开上屏
 
@@ -27,8 +27,8 @@ Windows 上的**纯离线**语音输入工具。按住热键说话，松开后�
 
 耗时是本机实测，换台机器会变。
 
-取高精度档：`pwsh scripts/fetch-models.ps1 -Engine qwen3`，然后在配置窗里把识别引擎换成
-`Qwen3Asr`。**换档要重启程序**，程序会问你一句。
+取高精度档：`powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1 -Engine qwen3`，
+然后在配置窗里把识别引擎换成 `Qwen3Asr`。**换档要重启程序**，程序会问你一句。
 
 ## 模型放哪儿
 

@@ -1,8 +1,11 @@
 ﻿# 下载识别模型到 models/<档位>/。Windows 侧的取模型脚本，与 fetch-models.sh 一一对应。
 #
-#   pwsh scripts/fetch-models.ps1                      # 默认档 SenseVoice -> models/sense-voice
-#   pwsh scripts/fetch-models.ps1 -Engine qwen3        # 高精度档 Qwen3-ASR -> models/qwen3-asr
-#   pwsh scripts/fetch-models.ps1 -Engine qwen3 -Destination D:\models\qwen3
+#   powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1
+#                                                      # 默认档 SenseVoice -> models/sense-voice
+#   ... -File scripts\fetch-models.ps1 -Engine qwen3   # 高精度档 Qwen3-ASR -> models/qwen3-asr
+#   ... -File scripts\fetch-models.ps1 -Engine qwen3 -Destination D:\models\qwen3
+#
+# 用 powershell（5.1）而非 pwsh：后者要另装，干净的 Windows 上没有。本脚本两边都跑得起来。
 #
 # **为什么不是只留那个 .sh**：本项目是 Windows-only 的，而干净的 Windows 机器上没有 bash。
 # 「按说明放入模型」是干净机验收清单里的一步，指向一个跑不了的脚本等于那一步走不通。

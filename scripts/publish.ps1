@@ -1,7 +1,9 @@
 ﻿# 发布 lisscribe 到 dist/ 目录。
 #
-#   pwsh scripts/publish.ps1
-#   pwsh scripts/publish.ps1 -Configuration Debug -Output out
+#   powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\publish.ps1 -Configuration Debug -Output out
+#
+# 用 powershell（5.1）而非 pwsh：后者要另装，干净的 Windows 上没有。本脚本两边都跑得起来。
 #
 # **刻意不用单文件**（PublishSingleFile=false）：sherpa-onnx-c-api.dll 由 .NET 的 DllImport
 # 解析器加载（单文件下能从解压目录找到），但它依赖的 onnxruntime.dll 是**传递依赖**，
@@ -50,6 +52,21 @@ foreach ($file in $required) {
 # 许可随包走。代码 MIT 那份是仓库根的 LICENSE；**权重许可不在这儿**，
 # 因为权重根本不进包（见下面那份说明）。
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $outputPath 'LICENSE')
+
+# 第三方许可**是分发义务，不是客套**：包里带着 sherpa-onnx（Apache-2.0）与 ANGLE（BSD-3-Clause）
+# 的二进制，两者都要求分发时附上许可全文与版权声明。只在 README 里提一句不算数。
+Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') `
+    -Destination (Join-Path $outputPath 'THIRD-PARTY-NOTICES.md')
+Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses') `
+    -Destination (Join-Path $outputPath 'licenses') -Recurse
+
+foreach ($file in @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'licenses\Apache-2.0.txt', 'licenses\ANGLE-LICENSE.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $outputPath $file))) {
+        throw "发布产物缺少 $file —— 分发时缺许可文件是许可事故。"
+    }
+
+    Write-Host "OK  $file"
+}
 
 # 模型目录只放说明，**绝不打包权重**。两档都要写：许可不同，目录也不同。
 New-Item -ItemType Directory -Force -Path (Join-Path $outputPath 'models') | Out-Null

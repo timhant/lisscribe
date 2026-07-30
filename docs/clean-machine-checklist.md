@@ -5,7 +5,9 @@
 这是唯一能提前抓住 DLL 加载问题的办法——开发机的输出目录里恰好躺着那些 DLL，
 所以本地永远测不出来。**本项目已经因此在另一台机器上栽过一次**（见 C 组）。
 
-准备：在开发机跑 `pwsh scripts/publish.ps1`，把 `dist\` 整个拷到目标机器。
+准备：在开发机跑 `powershell -ExecutionPolicy Bypass -File scripts\publish.ps1`，
+把 `dist\` 整个拷到目标机器。（**别写成 `pwsh`**：PowerShell 7 要另装，
+而这套脚本的服务对象恰恰是只有 5.1 的干净机器。）
 
 ---
 
