@@ -29,6 +29,60 @@ public sealed class ConfigStoreTests : IDisposable
     }
 
     /// <summary>
+    /// <b>升级路径：旧 <c>config.json</c> 里没有 <c>chineseNumberItn</c> 这个字段。</b>
+    /// 构造器式反序列化对缺失的 <c>bool</c> 参数填的是 <c>default</c>（即关），跟「默认开」
+    /// 正好相反——现有用户升上来会静默拿到关闭状态，而且他从没关过。
+    /// </summary>
+    [Fact]
+    public void Load_WhenChineseNumberItnIsAbsent_DefaultsToOn()
+    {
+        File.WriteAllText(Path, """
+            {
+              "version": 1,
+              "hotkey": { "modifiers": ["Ctrl", "Alt"], "mainKey": "Space", "holdThresholdMs": 300 },
+              "asr": { "engine": "Qwen3Asr", "modelDir": "./models/qwen3-asr", "provider": "cpu" },
+              "output": { "mode": "SendInput", "restoreClipboard": true,
+                          "trimTrailingPunctuation": true, "trimPunctuationMaxChars": 8 },
+              "app": { "autoStart": false, "logLevel": "Info" }
+            }
+            """);
+
+        var store = new ConfigStore(Path);
+
+        var config = store.Load();
+
+        Assert.Equal(ConfigLoadOutcome.Ok, store.LastOutcome);
+        Assert.True(config.Output.ChineseNumberItn);
+    }
+
+    /// <summary>
+    /// 上一条的阴性对照。少了它，「无论文件里写什么都返回开」也照样绿，而那样用户关掉的开关
+    /// 每次重启都自己回来。
+    /// </summary>
+    [Fact]
+    public void Load_WhenChineseNumberItnIsExplicitlyOff_StaysOff()
+    {
+        File.WriteAllText(Path, """
+            {
+              "version": 1,
+              "hotkey": { "modifiers": ["Ctrl", "Alt"], "mainKey": "Space", "holdThresholdMs": 300 },
+              "asr": { "engine": "Qwen3Asr", "modelDir": "./models/qwen3-asr", "provider": "cpu" },
+              "output": { "mode": "SendInput", "restoreClipboard": true,
+                          "trimTrailingPunctuation": true, "trimPunctuationMaxChars": 8,
+                          "chineseNumberItn": false },
+              "app": { "autoStart": false, "logLevel": "Info" }
+            }
+            """);
+
+        var store = new ConfigStore(Path);
+
+        var config = store.Load();
+
+        Assert.Equal(ConfigLoadOutcome.Ok, store.LastOutcome);
+        Assert.False(config.Output.ChineseNumberItn);
+    }
+
+    /// <summary>
     /// <b>2026-07-29 砍掉 <c>recording</c> 一节时补的回归。</b>那一节曾经是 schema 的一部分，
     /// 每一份已经存在的 <c>config.json</c> 里都写着它。若被判成坏文件，用户的热键、模型目录、
     /// 上屏方式会**一次性全部回落默认值**，而原文件只留个 <c>.bad</c> 后缀——

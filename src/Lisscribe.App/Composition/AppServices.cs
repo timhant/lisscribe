@@ -265,9 +265,13 @@ public sealed class AppServices : IAsyncDisposable
     /// <summary>
     /// 录音上限随引擎档位走（<see cref="SessionOptions.CreateFor"/>），别改回 CreateDefault：
     /// Qwen3 档说满 60s 的后果不是慢，是上屏一个字。
+    ///
+    /// <para>
+    /// 中文数字转换那个开关原样交给 <c>CreateFor</c>，判断留在它那里——本类刻意不含判断逻辑。
+    /// </para>
     /// </summary>
     private static SessionOptions SessionOptionsFrom(LisscribeConfig config) =>
-        SessionOptions.CreateFor(config.Asr.Engine) with
+        SessionOptions.CreateFor(config.Asr.Engine, config.Output.ChineseNumberItn) with
         {
             HoldThreshold = TimeSpan.FromMilliseconds(config.Hotkey.HoldThresholdMs),
             TrimTrailingPunctuation = config.Output.TrimTrailingPunctuation,

@@ -31,7 +31,7 @@
         界面上摆一个勾了没用的开关，比不摆更糟——已经害人白等过一次重启。 -->
         <Grid
             ColumnDefinitions="170,*"
-            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
             RowSpacing="6"
             ColumnSpacing="12">
 
@@ -177,6 +177,23 @@
 
             <CheckBox
                 Grid.Row="12"
+                Grid.Column="1"
+                Content="中文数字转阿拉伯数字"
+                IsChecked="{Binding ChineseNumberItn}" />
+
+            <!-- 两档都显示这个开关，但它只对 Qwen3 档起作用。行为按档变就得有一行字说出来
+            ——与上面那句「这一档能录多久」同一个理由：不说的话，用户在默认档上勾来勾去
+            看不出任何差别，只会以为是坏的。 -->
+            <TextBlock
+                Grid.Row="13"
+                Grid.Column="1"
+                Text="默认档的数字转换由模型自带，此开关不影响它"
+                FontSize="11"
+                Opacity="0.65"
+                TextWrapping="Wrap" />
+
+            <CheckBox
+                Grid.Row="14"
                 Grid.Column="1"
                 Content="开机自启"
                 IsChecked="{Binding AutoStart}" />

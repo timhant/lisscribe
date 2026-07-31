@@ -257,6 +257,28 @@ public sealed class SettingsViewModelTests : IDisposable
         Assert.Equal(500, new ConfigStore(ConfigPath).Load().Hotkey.HoldThresholdMs);
     }
 
+    /// <summary>
+    /// <b>中文数字转换的开关要真的存下去。</b><c>OutputSection.ChineseNumberItn</c> 带默认值
+    /// （为的是旧 config.json 缺字段时仍算「开」），于是 <c>TrySave</c> 重新 <c>new</c> 这一节时
+    /// 漏掉它**不会编译错**，只会把用户刚关掉的开关无声地重置回开——重启一次它自己就回来了。
+    /// </summary>
+    [Fact]
+    public void TrySave_PersistsChineseNumberItnBothWays()
+    {
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.ChineseNumberItn = false;
+
+        Assert.True(vm.TrySave(out var error), error);
+        Assert.False(new ConfigStore(ConfigPath).Load().Output.ChineseNumberItn);
+
+        // 阴性对照：少了它，实现里写死 false 也照样绿。
+        vm.ChineseNumberItn = true;
+
+        Assert.True(vm.TrySave(out error), error);
+        Assert.True(new ConfigStore(ConfigPath).Load().Output.ChineseNumberItn);
+    }
+
     [Fact]
     public void TrySave_WithInvalidThreshold_FailsWithMessageAndDoesNotWrite()
     {

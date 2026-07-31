@@ -610,6 +610,18 @@ public sealed class SessionController : IAsyncDisposable
 
         try
         {
+            // 单独兜一层：下面那个 catch 的语义是「放弃上屏」，数字没转成而已却把整句话丢掉，
+            // 这交换不成立。转换失败按原文上屏，但要留日志——纯字符串函数抛异常本身是 bug。
+            try
+            {
+                text = ChineseNumberItn.Convert(text, _options.ApplyChineseNumberItn);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "中文数字转换失败，本次按原文上屏");
+            }
+
+            // 顺序要紧：清理阈值按「最终要上屏的那串」的字数算，故必须排在数字转换之后。
             text = TrailingPunctuationTrimmer.Trim(
                 text, _options.TrimTrailingPunctuation, _options.TrimPunctuationMaxChars);
 

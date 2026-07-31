@@ -48,6 +48,10 @@ public sealed class ConfigRestartPolicyTests
                 baseline with { Output = baseline.Output with { TrimPunctuationMaxChars = 3 } }
             },
             {
+                "中文数字转换",
+                baseline with { Output = baseline.Output with { ChineseNumberItn = false } }
+            },
+            {
                 "长按判定阈值",
                 baseline with { Hotkey = baseline.Hotkey with { HoldThresholdMs = 500 } }
             },

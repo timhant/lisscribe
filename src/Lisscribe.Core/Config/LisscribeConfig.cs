@@ -29,7 +29,8 @@ public sealed record LisscribeConfig(
         Asr: new AsrSection(
             AsrEngines.SenseVoice, AsrEngines.DefaultModelDir(AsrEngines.SenseVoice), "cpu"),
         Output: new OutputSection("SendInput", RestoreClipboard: true,
-                                  TrimTrailingPunctuation: true, TrimPunctuationMaxChars: 8),
+                                  TrimTrailingPunctuation: true, TrimPunctuationMaxChars: 8,
+                                  ChineseNumberItn: true),
         App: new AppSection(AutoStart: false, LogLevel: "Info"));
 }
 
@@ -39,7 +40,13 @@ public sealed record HotkeySection(string[] Modifiers, string MainKey, int HoldT
 /// <param name="Provider">只接受 "cpu"。"cuda" 须运行时探测通过才可选，尚未实现。</param>
 public sealed record AsrSection(string Engine, string ModelDir, string Provider);
 
+/// <param name="ChineseNumberItn">
+/// 中文数字转阿拉伯数字，**只对 Qwen3 档有效**（默认档由模型自带）。
+/// 默认值写在参数上，是为了让旧 <c>config.json</c>（没有这个字段）反序列化后仍是「开」——
+/// 缺失的 <c>bool</c> 参数否则填 <c>default</c>，等于把开关替升级上来的用户关掉了。
+/// </param>
 public sealed record OutputSection(
-    string Mode, bool RestoreClipboard, bool TrimTrailingPunctuation, int TrimPunctuationMaxChars);
+    string Mode, bool RestoreClipboard, bool TrimTrailingPunctuation, int TrimPunctuationMaxChars,
+    bool ChineseNumberItn = true);
 
 public sealed record AppSection(bool AutoStart, string LogLevel);

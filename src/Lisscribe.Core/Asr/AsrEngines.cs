@@ -55,4 +55,18 @@ public static class AsrEngines
         _ => throw new ArgumentOutOfRangeException(
             nameof(engine), engine, $"未知的识别引擎，只支持 {string.Join(" / ", All)}"),
     };
+
+    /// <summary>
+    /// 该档是否需要软件做中文数字转换。
+    /// SenseVoice 由 sherpa-onnx 的 <c>UseInverseTextNormalization</c> 自带，再叠一层只会打架；
+    /// Qwen3 没有这个开关——sherpa-onnx 1.13.4 的 Qwen3 实现根本不调 <c>RuleFsts</c>
+    /// （实测：带不带 <c>itn_zh_number.fst</c>，输出逐字节相同），只能自己做。
+    /// </summary>
+    public static bool NeedsChineseNumberItn(string engine) => engine switch
+    {
+        SenseVoice => false,
+        Qwen3Asr => true,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(engine), engine, $"未知的识别引擎，只支持 {string.Join(" / ", All)}"),
+    };
 }

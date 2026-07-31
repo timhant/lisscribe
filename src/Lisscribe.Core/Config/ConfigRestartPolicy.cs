@@ -36,6 +36,8 @@ public static class ConfigRestartPolicy
             running.Output.TrimTrailingPunctuation, saved.Output.TrimTrailingPunctuation);
         Compare(changes, "末尾标点最多清理字符数",
             running.Output.TrimPunctuationMaxChars, saved.Output.TrimPunctuationMaxChars);
+        Compare(changes, "中文数字转换",
+            running.Output.ChineseNumberItn, saved.Output.ChineseNumberItn);
 
         Compare(changes, "长按判定阈值",
             running.Hotkey.HoldThresholdMs, saved.Hotkey.HoldThresholdMs);

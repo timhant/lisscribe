@@ -93,6 +93,10 @@ public sealed partial class SettingsViewModel(
     [ObservableProperty]
     private int _trimPunctuationMaxChars;
 
+    /// <summary>中文数字转阿拉伯数字。两档都显示，但只对 Qwen3 档有效——默认档由模型自带。</summary>
+    [ObservableProperty]
+    private bool _chineseNumberItn;
+
     [ObservableProperty]
     private bool _autoStart;
 
@@ -143,6 +147,7 @@ public sealed partial class SettingsViewModel(
             RestoreClipboard = _config.Output.RestoreClipboard;
             TrimTrailingPunctuation = _config.Output.TrimTrailingPunctuation;
             TrimPunctuationMaxChars = _config.Output.TrimPunctuationMaxChars;
+            ChineseNumberItn = _config.Output.ChineseNumberItn;
             AutoStart = autoStart.IsEnabled;
             LogLevel = _config.App.LogLevel;
             CurrentDeviceName = deviceNameProvider();
@@ -202,7 +207,8 @@ public sealed partial class SettingsViewModel(
             Hotkey = _config.Hotkey with { HoldThresholdMs = HoldThresholdMs },
             Asr = _config.Asr with { Engine = Engine, ModelDir = ModelDir },
             Output = new OutputSection(
-                OutputMode, RestoreClipboard, TrimTrailingPunctuation, TrimPunctuationMaxChars),
+                OutputMode, RestoreClipboard, TrimTrailingPunctuation, TrimPunctuationMaxChars,
+                ChineseNumberItn),
             App = new AppSection(AutoStart, LogLevel),
         };
 
