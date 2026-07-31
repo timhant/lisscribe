@@ -23,6 +23,13 @@ public static class ChineseNumberItn
     /// <summary>「元」右侧允许的收尾标点，用来挡「三元一次方程」这种「元 + 名词」构型。</summary>
     private const string Terminators = "，。！？；：、…—,.!?;:";
 
+    /// <summary>钟点的左侧信号。只收时段词，「大约」「差不多」这类不算——它们跟量词用法同样搭得上。</summary>
+    private static readonly string[] TimeOfDayPrefixes =
+    [
+        "早上", "早晨", "上午", "中午", "下午", "傍晚", "晚上", "夜里", "夜间", "半夜", "凌晨",
+        "今天", "明天", "昨天", "前天", "后天", "今早", "明早",
+    ];
+
     public static string Convert(string text, bool enabled)
     {
         if (!enabled || text.Length == 0)
@@ -53,9 +60,16 @@ public static class ChineseNumberItn
                     continue;
                 }
 
-                // 整段数词原样留下，不再从段内某处重试——重试只会拼出更古怪的结果。
-                builder.Append(text, i, end - i);
-                i = end;
+                // 规则没接住。「点」是唯一会把两段数词分开的锚点，它一旦落空，右侧那段必须
+                // 连同一起原样留下——否则下一轮会把它当成独立的长数字串转掉，出「三点1415」
+                // 这种半转，比一个字不转难看得多。
+                var skipTo = end < text.Length && text[end] == '点'
+                    ? ScanNumerals(text, end + 1)
+                    : end;
+
+                // 整段原样留下，不再从段内某处重试——重试只会拼出更古怪的结果。
+                builder.Append(text, i, skipTo - i);
+                i = skipTo;
 
                 continue;
             }
@@ -75,7 +89,9 @@ public static class ChineseNumberItn
 
         return anchor switch
         {
-            '点' => TryTime(text, numerals, end, builder, out next),
+            // 时间先试，落空了才当小数：「九点三十分」是时间，「三点一四一五」是小数。
+            '点' => TryTime(text, start, numerals, end, builder, out next)
+                    || TryDecimal(text, numerals, end, builder, out next),
             '块' or '元' or '毛' or '角' => TryMoney(text, numerals, end, anchor, builder, out next),
             '月' => TryMonthOrDay(numerals, end, anchor, 1, 12, builder, out next),
             '日' or '号' => TryMonthOrDay(numerals, end, anchor, 1, 31, builder, out next),
@@ -84,21 +100,22 @@ public static class ChineseNumberItn
         };
     }
 
-    private static bool TryTime(string text, string numerals, int anchorIndex, StringBuilder builder, out int next)
+    /// <summary>
+    /// 钟点。**必须有第二个时间信号**：「点」既是钟点也是量词，「我有三点建议」跟「九点开会」
+    /// 在左侧长得一模一样，光靠一个数字分不出来。信号是左侧的时段提示词，或右侧的
+    /// 半/刻/整/钟/分/秒。裸的「九点开会」因此不转——白名单口径下宁可漏。
+    /// </summary>
+    private static bool TryTime(
+        string text, int numeralStart, string numerals, int anchorIndex, StringBuilder builder, out int next)
     {
         next = anchorIndex;
-
-        // 例外表：「有一点累」比「1点」常见得多。只对单字「一」生效，「十一点」照转。
-        if (numerals == "一")
-        {
-            return false;
-        }
 
         if (!ChineseNumeralParser.TryParseInteger(numerals, out var hour) || hour is < 0 or > 24)
         {
             return false;
         }
 
+        var hasSignal = HasTimeOfDayPrefix(text, numeralStart);
         var cursor = anchorIndex + 1;
         var tail = new StringBuilder();
 
@@ -119,6 +136,7 @@ public static class ChineseNumberItn
                 // 「一刻」「三刻」保留汉字。
                 tail.Append(text, cursor, runEnd - cursor + 1);
                 cursor = runEnd + 1;
+                hasSignal = true;
 
                 break;
             }
@@ -135,10 +153,82 @@ public static class ChineseNumberItn
 
             tail.Append(part).Append(unit);
             cursor = runEnd + 1;
+            hasSignal = true;
+        }
+
+        // 「半」「整」「钟」原样交给主循环输出，这里只把它们算作信号。
+        if (cursor < text.Length && text[cursor] is '半' or '整' or '钟')
+        {
+            hasSignal = true;
+        }
+
+        if (!hasSignal)
+        {
+            return false;
         }
 
         builder.Append(hour).Append('点').Append(tail);
         next = cursor;
+
+        return true;
+    }
+
+    /// <summary>数词串紧挨着的左边是不是时段提示词。</summary>
+    private static bool HasTimeOfDayPrefix(string text, int numeralStart)
+    {
+        foreach (var prefix in TimeOfDayPrefixes)
+        {
+            if (numeralStart >= prefix.Length
+                && text.AsSpan(numeralStart - prefix.Length, prefix.Length).SequenceEqual(prefix))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 小数：「三点一四一五」→ 3.1415。只在时间规则落空之后才轮到它。
+    ///
+    /// <para>
+    /// 小数部分走逐位读法——说小数不带位权字（「三点一四」不是「三点十四」）。左侧不设值域：
+    /// 时间那个 0–24 是钟点的事，「二十五点三」是个正常的数。
+    /// </para>
+    /// <para>
+    /// <b>「一点」那条例外不套用在这里。</b>它是为「有一点累」设的，而右侧一旦跟着数词，
+    /// 那个歧义就不存在了——「一点五」就是 1.5。
+    /// </para>
+    /// </summary>
+    private static bool TryDecimal(
+        string text, string numerals, int anchorIndex, StringBuilder builder, out int next)
+    {
+        next = anchorIndex;
+
+        if (!ChineseNumeralParser.TryParseInteger(numerals, out var whole))
+        {
+            return false;
+        }
+
+        var cursor = anchorIndex + 1;
+        var runEnd = ScanNumerals(text, cursor);
+
+        if (runEnd == cursor
+            || !ChineseNumeralParser.TryParseDigits(text[cursor..runEnd], out var fraction))
+        {
+            return false;
+        }
+
+        // 后面跟着时间单位就不是小数，是「九点零五分」那种时间——那一处宁可不转。
+        var following = runEnd < text.Length ? text[runEnd] : '\0';
+
+        if (following is '分' or '秒' or '刻')
+        {
+            return false;
+        }
+
+        builder.Append(whole).Append('.').Append(fraction);
+        next = runEnd;
 
         return true;
     }
