@@ -127,6 +127,10 @@ public sealed class ChineseNumberItnTests
     [InlineData("三年")]
     [InlineData("三元一次方程")]
     [InlineData("二元结构")]
+    [InlineData("三角形")]        // 「角」跟「元」同族：钱单位也是常用字，右侧接名词就不是钱
+    [InlineData("三角函数")]
+    [InlineData("六角螺丝")]
+    [InlineData("三毛流浪记")]
     [InlineData("九点零五分")]   // 已知漏项：整数读法不认「零五」，而右侧跟着「分」也轮不到小数
     [InlineData("三点二十")]     // 右侧含位权字，逐位读法拒收，故既不是时间也不是小数
     [InlineData("一二三四五六七八九十")]   // 末尾那个「十」是位权字，整串被逐位读法拒之门外

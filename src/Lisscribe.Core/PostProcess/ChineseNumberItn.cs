@@ -20,8 +20,15 @@ public static class ChineseNumberItn
 
     private const string PercentPrefix = "百分之";
 
-    /// <summary>「元」右侧允许的收尾标点，用来挡「三元一次方程」这种「元 + 名词」构型。</summary>
+    /// <summary>钱单位右侧允许的收尾标点，用来挡「三元一次方程」这种「钱单位 + 名词」构型。</summary>
     private const string Terminators = "，。！？；：、…—,.!?;:";
+
+    /// <summary>
+    /// 右侧必须收尾的钱单位。这三个字日常还兼着别的意思，一接名词就不是钱了：
+    /// 三元一次方程 / 三角形 / 三毛流浪记。「块」不在其中——它几乎只作量词与钱，
+    /// 且加进来会把「三块五」一并挡掉。
+    /// </summary>
+    private const string StrictMoneyAnchors = "元角毛";
 
     /// <summary>钟点的左侧信号。只收时段词，「大约」「差不多」这类不算——它们跟量词用法同样搭得上。</summary>
     private static readonly string[] TimeOfDayPrefixes =
@@ -252,9 +259,10 @@ public static class ChineseNumberItn
         var cursor = anchorIndex + 1;
         var after = cursor < text.Length ? text[cursor] : '\0';
 
-        // 「元」比别的钱单位多一道要求：右侧须是句末、标点、「钱」或「整」。挡的正是
-        // 「三元一次方程」「二元结构」这种「元 + 名词」，而真金额恰好都留得下。
-        if (anchor == '元' && after != '\0' && after != '钱' && after != '整' && !Terminators.Contains(after))
+        // 「元角毛」比「块」多一道要求：右侧须是句末、标点、「钱」或「整」。挡的正是
+        // 「三元一次方程」「三角形」「三毛流浪记」这种构型，而真金额恰好都留得下。
+        if (StrictMoneyAnchors.Contains(anchor)
+            && after != '\0' && after != '钱' && after != '整' && !Terminators.Contains(after))
         {
             return false;
         }
@@ -263,8 +271,9 @@ public static class ChineseNumberItn
         next = cursor;
 
         // 「三块五」的散数：转，但不合并成 3.5，保留口语形态。其后若跟着别的钱单位
-        // （三块五毛），这一位交给那个锚点自己处理。
-        if (anchor is '块' or '元')
+        // （三块五毛），这一位交给那个锚点自己处理。**只有「块」走得到这儿**——上面那道
+        // 要求已经把「元角毛」右侧跟数词的情形全判掉了，写成 `块 or 元` 是自欺。
+        if (anchor == '块')
         {
             var runEnd = ScanNumerals(text, cursor);
             var following = runEnd < text.Length ? text[runEnd] : '\0';
