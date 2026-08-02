@@ -247,11 +247,16 @@ public sealed class ReleaseArtifactsTests
     [Fact]
     public void TheProducedArchive_UsesForwardSlashes_AndCarriesTheLicencesButNoWeights()
     {
+        // **挑的必须是「当前版本」那个包。** 升过版本号之后，`dist\` 下常常新旧两个 zip 并排
+        // 躺着，而 `FirstOrDefault()` 抓到的是旧的——它当然全绿，新包却一格都没查到。
+        // 判据取自 props 的版本号，与 dist 里恰好有什么无关。
+        var version = DeclaredVersion();
         var archive = Directory.Exists(InRepo("dist"))
-            ? Directory.EnumerateFiles(InRepo("dist"), "*.zip").FirstOrDefault()
+            ? Directory.EnumerateFiles(InRepo("dist"), "*.zip")
+                .FirstOrDefault(path => Path.GetFileName(path).Contains(version, StringComparison.Ordinal))
             : null;
 
-        Assert.SkipWhen(archive is null, "dist 下没有发行包，先跑 scripts\\publish.ps1");
+        Assert.SkipWhen(archive is null, $"dist 下没有 {version} 的发行包，先跑 scripts\\publish.ps1");
 
         using var zip = ZipFile.OpenRead(archive!);
         var names = zip.Entries.Select(entry => entry.FullName).ToArray();
