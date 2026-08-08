@@ -25,6 +25,37 @@ public sealed class WindowProbeTests
     }
 
     [Fact]
+    public void Describe_NamesTheProcessAndTheWindowClass()
+    {
+        // 日志里只有一个 HWND 时排障根本走不下去：0x67972 是记事本还是别的东西，事后无从追认
+        // ——2026-08-08 那次真机故障就卡在这儿。进程名 + 窗口类名两样合起来才认得出目标。
+        //
+        // **刻意不记窗口标题**：那一栏常带着用户的文件名与文档内容，而本程序连识别结果都不落盘。
+        using var window = new TestWindow("probe-describe");
+
+        var description = Probe.Describe(window.Handle);
+
+        Assert.Contains(TestWindow.RegisteredClassName, description);
+        Assert.Contains(
+            System.Diagnostics.Process.GetCurrentProcess().ProcessName, description);
+    }
+
+    [Fact]
+    public void Describe_ForAnInvalidHandle_SaysSoAndDoesNotThrow()
+    {
+        // 与 CanInjectInto 同一条纪律：排障用的东西自己把程序搞崩，比没有它更糟。
+        var description = Probe.Describe(0x7FFFFFFF);
+
+        Assert.False(string.IsNullOrWhiteSpace(description));
+    }
+
+    [Fact]
+    public void Describe_ForZeroHandle_SaysNone()
+    {
+        Assert.Equal("无", Probe.Describe(nint.Zero));
+    }
+
+    [Fact]
     public void CanInjectInto_ForAWindowOfOurOwnProcess_IsTrue()
     {
         // **别用 Process.GetCurrentProcess().MainWindowHandle 取句柄**：测试宿主是控制台进程，

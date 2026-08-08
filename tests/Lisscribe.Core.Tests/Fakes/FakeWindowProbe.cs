@@ -24,4 +24,6 @@ public sealed class FakeWindowProbe : IWindowProbe
     }
 
     public bool CanInjectInto(nint window) => !ElevatedWindows.Contains(window);
+
+    public string Describe(nint window) => $"假窗口 0x{window:X}";
 }

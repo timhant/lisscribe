@@ -63,6 +63,9 @@ internal sealed unsafe class TestWindow : IDisposable
     /// </summary>
     private static readonly Lazy<string> ClassName = new(RegisterClass, LazyThreadSafetyMode.PublicationOnly);
 
+    /// <summary>已注册的窗口类名。供「谁在描述这个窗口」那类断言取真值，不必写死字面量。</summary>
+    internal static string RegisteredClassName => ClassName.Value;
+
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _ready = new();
 

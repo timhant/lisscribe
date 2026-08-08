@@ -28,4 +28,9 @@ internal sealed class FakeWindowProbe(bool canInject) : IWindowProbe
         LastQueriedWindow = window;
         return canInject;
     }
+
+    /// <summary>纯日志用，走真的 user32，不造假。</summary>
+    public string Describe(nint window) =>
+        new WindowProbe(Microsoft.Extensions.Logging.Abstractions.NullLogger<WindowProbe>.Instance)
+            .Describe(window);
 }

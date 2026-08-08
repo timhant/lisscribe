@@ -159,6 +159,13 @@ internal static partial class User32
     [LibraryImport("user32.dll", SetLastError = true)]
     public static partial uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
 
+    /// <summary>
+    /// 窗口类名。缓冲区声明成 <c>char*</c> 而不是 <c>[Out] char[]</c>：后者在 LibraryImport 下
+    /// 报 SYSLIB1051，而本项目 <c>TreatWarningsAsErrors</c>。
+    /// </summary>
+    [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", SetLastError = true)]
+    public static unsafe partial int GetClassName(nint hWnd, char* buffer, int maxCount);
+
     // Get/SetWindowLongPtr 成功时也可能返回 0，只能靠「调用前清零 last error」区分成败。
     // LibraryImport 生成的代码在调用前会执行 Marshal.SetLastSystemError(0)，恰好满足这个前提，
     // 故 SetLastError = true 在这两条上不是摆设。

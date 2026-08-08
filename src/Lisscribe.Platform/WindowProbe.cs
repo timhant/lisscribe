@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Lisscribe.Core.Abstractions;
 using Lisscribe.Platform.Native;
@@ -60,6 +61,45 @@ public sealed class WindowProbe : IWindowProbe
     }
 
     public nint GetForegroundWindow() => User32.GetForegroundWindow();
+
+    /// <summary>
+    /// 「进程名/窗口类名」。一句也不许抛：调用它的地方全在日志语句里。
+    /// </summary>
+    public string Describe(nint window)
+    {
+        if (window == nint.Zero)
+        {
+            return "无";
+        }
+
+        try
+        {
+            User32.GetWindowThreadProcessId(window, out var processId);
+
+            var process = processId == 0
+                ? "?"
+                : Process.GetProcessById((int)processId).ProcessName;
+
+            return $"{process}/{ReadClassName(window)}";
+        }
+        catch (Exception)
+        {
+            // 连日志都不记：本方法自己就是日志的一部分，在这儿再记一条只会套娃。
+            // 进程可能刚退出、句柄可能已失效，两者都是常态而非异常。
+            return "?";
+        }
+    }
+
+    private static unsafe string ReadClassName(nint window)
+    {
+        // 类名上限 256（RegisterClass 的硬限制），一次读满即可，不必试探长度。
+        const int MaxClassNameLength = 256;
+
+        var buffer = stackalloc char[MaxClassNameLength];
+        var copied = User32.GetClassName(window, buffer, MaxClassNameLength);
+
+        return copied > 0 ? new string(buffer, 0, copied) : "?";
+    }
 
     public bool CanInjectInto(nint window)
     {

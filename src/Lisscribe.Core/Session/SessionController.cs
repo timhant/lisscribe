@@ -260,6 +260,13 @@ public sealed class SessionController : IAsyncDisposable
                 _targetWindow = nint.Zero;
             }
 
+            // **目标窗口是谁必须当场记下来。** 事后光有一个 HWND 认不出它是记事本还是别的东西，
+            // 而「上屏返回 Ok、目标窗口里一个字也没有」这类故障的第一个岔路口恰恰是「打给了谁」
+            // ——2026-08-08 那次真机故障就卡在这上头。不含窗口标题，见 IWindowProbe.Describe。
+            _logger.LogInformation(
+                "开始录音，目标窗口 0x{Window:X}（{Description}）",
+                _targetWindow, DescribeSafely(_targetWindow));
+
             // 看门狗按 now - _recordingStartedAt 判定按住时长与最长录音时长，故起始时刻
             // 必须与 _capture.Start() 同刻记下。
             _recordingStartedAt = _time.GetUtcNow();
@@ -274,6 +281,22 @@ public sealed class SessionController : IAsyncDisposable
             _capture.Start();
 
             SetState(SessionState.Recording, null);
+        }
+    }
+
+    /// <summary>
+    /// 描述一个窗口，供日志用。探针的实现契约里写着「不许抛」，这里仍再兜一层——
+    /// 这几个调用点全在日志语句里，为一行排障信息把状态机搞崩是本末倒置。
+    /// </summary>
+    private string DescribeSafely(nint window)
+    {
+        try
+        {
+            return _probe.Describe(window);
+        }
+        catch (Exception)
+        {
+            return "?";
         }
     }
 
@@ -642,8 +665,10 @@ public sealed class SessionController : IAsyncDisposable
             if (currentWindow != request.TargetWindow || elapsed > _options.StaleResultThreshold)
             {
                 _logger.LogInformation(
-                    "焦点已从 {Original} 切至 {Current}（耗时 {Elapsed}），结果转剪贴板",
-                    request.TargetWindow, currentWindow, elapsed);
+                    "焦点已从 0x{Original:X}（{OriginalName}）切至 0x{Current:X}（{CurrentName}）"
+                    + "，耗时 {Elapsed}，结果转剪贴板",
+                    request.TargetWindow, DescribeSafely(request.TargetWindow),
+                    currentWindow, DescribeSafely(currentWindow), elapsed);
 
                 var clipboardResult = await _injector.InjectAsync(text, nint.Zero, cancellationToken);
 
