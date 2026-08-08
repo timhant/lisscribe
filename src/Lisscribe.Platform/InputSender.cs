@@ -44,9 +44,27 @@ internal static class InputSender
             return true;
         }
 
-        safe.LogDebug("注入前释放修饰键 {Modifiers}", held);
+        // **Information 而不是 Debug。** 这一步一旦没做成，症状是「注入返回 Ok、目标窗口里一个字
+        // 也没有」——按住 Alt 时 Ctrl+V 一个字符都粘不进去，而注入器无从察觉。默认日志级别是 Info，
+        // 记在 Debug 上等于现场发生时什么也留不下。
+        safe.LogInformation("注入前释放修饰键 {Modifiers}", held);
 
-        return TrySend(InputBuilder.BuildModifierRelease(held), safe, "释放修饰键");
+        if (!TrySend(InputBuilder.BuildModifierRelease(held), safe, "释放修饰键"))
+        {
+            return false;
+        }
+
+        // 发出去不等于生效。**复核一次**：这两件事之间隔着整个输入栈，而没生效时下游的
+        // Ctrl+V 会变成 Ctrl+Alt+V（一个字符也粘不进去）、SendInput 的字符会被当成快捷键，
+        // 两种都返回 Ok，除了这一行没有任何痕迹。
+        var stillHeld = ReadPhysicalModifiers();
+
+        if (stillHeld != ModifierKeys.None)
+        {
+            safe.LogWarning("释放修饰键之后 {Modifiers} 仍处于按下态，本次注入很可能被目标应用当成快捷键", stillHeld);
+        }
+
+        return true;
     }
 
     public static bool TrySend(INPUT[] inputs, ILogger logger, string what)
