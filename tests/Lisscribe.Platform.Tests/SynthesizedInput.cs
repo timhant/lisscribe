@@ -92,6 +92,50 @@ internal static class SynthesizedInput
         }
     }
 
+    /// <summary>左 Alt 的扫描码。硬件键盘发出来的 Alt 带着它，而 <see cref="Send"/> 合成的带的是 0。</summary>
+    public const ushort ScanCodeLeftAlt = 0x38;
+
+    /// <summary>
+    /// 发一批**带真实扫描码**的按键事件。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Send"/> 一律填 <c>wScan = 0</c>，而真键盘发出来的每一个事件都带扫描码。
+    /// 这个差别不是细枝末节：Windows 判「某个修饰键按下到抬起之间有没有夹别的键」时若参考扫描码，
+    /// 那么用 <see cref="Send"/> 合成的 Alt 与真手按下的 Alt 走的就不是同一条判定，
+    /// 而整套「按 Alt 不弹菜单」的用例会变成空转。故对照必须能把扫描码那一栏填真。
+    /// </remarks>
+    public static void SendPhysical(params (ushort Vk, ushort Scan, bool KeyUp)[] keys)
+    {
+        var inputs = new INPUT[keys.Length];
+
+        for (var i = 0; i < keys.Length; i++)
+        {
+            inputs[i] = new INPUT
+            {
+                type = User32.INPUT_KEYBOARD,
+                union = new InputUnion
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = keys[i].Vk,
+                        wScan = keys[i].Scan,
+                        dwFlags = keys[i].KeyUp ? User32.KEYEVENTF_KEYUP : 0,
+                        time = 0,
+                        dwExtraInfo = 0,
+                    },
+                },
+            };
+        }
+
+        var sent = User32.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+
+        if (sent != inputs.Length)
+        {
+            throw new InvalidOperationException(
+                $"SendInput 只发出 {sent}/{inputs.Length} 个事件，Win32 错误码 {Marshal.GetLastWin32Error()}");
+        }
+    }
+
     /// <summary>不带任何修饰键释放的裸 Ctrl+V，供剪贴板路径的负对照使用。</summary>
     public static void SendRawCtrlV() => Send(
         0,

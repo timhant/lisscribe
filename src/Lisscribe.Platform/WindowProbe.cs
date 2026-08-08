@@ -90,6 +90,52 @@ public sealed class WindowProbe : IWindowProbe
         }
     }
 
+    /// <summary>
+    /// 目标线程是不是正处在菜单模式。三种菜单状态一并算：菜单栏、系统菜单、弹出菜单——
+    /// 三者都会把按键收归菜单，对注入而言后果相同。
+    /// </summary>
+    public bool IsInMenuMode(nint window)
+    {
+        try
+        {
+            if (window == nint.Zero)
+            {
+                return false;
+            }
+
+            var threadId = User32.GetWindowThreadProcessId(window, out _);
+
+            if (threadId == 0)
+            {
+                return false;
+            }
+
+            var info = new User32.GUITHREADINFO
+            {
+                // 不填 cbSize 这一步做不成，且失败时结构体全是 0，读出来就是「不在菜单模式」
+                // ——一个看着正常的错误答案。
+                cbSize = (uint)Marshal.SizeOf<User32.GUITHREADINFO>(),
+            };
+
+            if (!User32.GetGUIThreadInfo(threadId, ref info))
+            {
+                return false;
+            }
+
+            const uint AnyMenuMode =
+                User32.GUI_INMENUMODE | User32.GUI_SYSTEMMENUMODE | User32.GUI_POPUPMENUMODE;
+
+            return (info.flags & AnyMenuMode) != 0;
+        }
+        catch (Exception ex)
+        {
+            // 与 CanInjectInto 同一条理由：调用方是识别队列的 worker。答 false 是安全的那一侧。
+            _logger.LogWarning(ex, "判定窗口 0x{Window:X} 是否处在菜单模式时出错，按不在处理", window);
+
+            return false;
+        }
+    }
+
     private static unsafe string ReadClassName(nint window)
     {
         // 类名上限 256（RegisterClass 的硬限制），一次读满即可，不必试探长度。

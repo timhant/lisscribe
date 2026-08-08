@@ -74,6 +74,10 @@ public sealed class SendInputTextInjector : ITextInjector
             return Task.FromResult(InjectResult.Failed);
         }
 
+        // 修饰键释放完再查菜单模式：上面那一串补发的 Alt↑ 本身就可能把目标推进菜单模式，
+        // 查在前面等于查了个过期的状态。
+        InputSender.TryLeaveMenuMode(_windowProbe, targetWindow, _logger);
+
         // 不变量 2 在 BuildText 内部（逐 UTF-16 码元发送，代理对天然占两个索引）。
         var ok = InputSender.TrySend(InputBuilder.BuildText(text), _logger, "注入文本");
 

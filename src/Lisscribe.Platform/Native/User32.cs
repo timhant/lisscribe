@@ -166,6 +166,40 @@ internal static partial class User32
     [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", SetLastError = true)]
     public static unsafe partial int GetClassName(nint hWnd, char* buffer, int maxCount);
 
+    /// <summary>菜单栏被键盘激活、正处在菜单模式。</summary>
+    public const uint GUI_INMENUMODE = 0x00000004;
+
+    /// <summary>系统菜单（窗口左上角那个）正开着。</summary>
+    public const uint GUI_SYSTEMMENUMODE = 0x00000008;
+
+    /// <summary>弹出菜单正开着。</summary>
+    public const uint GUI_POPUPMENUMODE = 0x00000010;
+
+    /// <summary>
+    /// 一条 GUI 线程的输入状态。<c>cbSize</c> 必须先填，否则调用失败。
+    /// 末尾那四个 int 是 <c>rcCaret</c>，本项目用不到，但结构体大小必须对得上。
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct GUITHREADINFO
+    {
+        public uint cbSize;
+        public uint flags;
+        public nint hwndActive;
+        public nint hwndFocus;
+        public nint hwndCapture;
+        public nint hwndMenuOwner;
+        public nint hwndMoveSize;
+        public nint hwndCaret;
+        public int caretLeft;
+        public int caretTop;
+        public int caretRight;
+        public int caretBottom;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
+
     // Get/SetWindowLongPtr 成功时也可能返回 0，只能靠「调用前清零 last error」区分成败。
     // LibraryImport 生成的代码在调用前会执行 Marshal.SetLastSystemError(0)，恰好满足这个前提，
     // 故 SetLastError = true 在这两条上不是摆设。

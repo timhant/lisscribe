@@ -175,6 +175,10 @@ public sealed class ClipboardTextInjector : ITextInjector
             return InjectResult.Failed;
         }
 
+        // 菜单模式下 Ctrl+V 同样一个字符也粘不进去，而这条路一样返回 Ok。查在释放修饰键之后：
+        // 上面那一串补发的 Alt↑ 本身就可能把目标推进菜单模式。
+        InputSender.TryLeaveMenuMode(_windowProbe, targetWindow, _logger);
+
         if (!TrySendCtrlV())
         {
             // 粘贴没发出去时不恢复旧内容：文本还留在剪贴板上，用户至少能自己按一次 Ctrl+V。

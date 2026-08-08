@@ -94,6 +94,20 @@ internal static class InputBuilder
     }
 
     /// <summary>
+    /// 一对 Alt 的按放，用来把已经进了菜单模式的目标窗口拽出来。
+    /// </summary>
+    /// <remarks>
+    /// 菜单开着时 Alt 就是「关掉菜单」，此外没有别的含义；Esc 在应用里五花八门（关对话框、
+    /// 取消 IME 候选、退出全屏），替用户按下去是越权。只发左 Alt：两侧都发的话，退出之后那一次
+    /// 多余的按放又可能把菜单重新打开。
+    /// </remarks>
+    public static INPUT[] BuildMenuModeExit() =>
+    [
+        CreateVirtualKeyInput(VirtualKey.VK_LMENU, keyUp: false),
+        CreateVirtualKeyInput(VirtualKey.VK_LMENU, keyUp: true),
+    ];
+
+    /// <summary>
     /// 一对未分配码 <see cref="VirtualKey.VK_NEUTRAL"/> 的按放，当「中间键」用。
     /// </summary>
     /// <remarks>

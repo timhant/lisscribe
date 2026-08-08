@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Security.Principal;
+using Lisscribe.Core.Abstractions;
 using Lisscribe.Platform.Native;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -53,6 +54,107 @@ public sealed class WindowProbeTests
     public void Describe_ForZeroHandle_SaysNone()
     {
         Assert.Equal("无", Probe.Describe(nint.Zero));
+    }
+
+    [Fact]
+    public void IsInMenuMode_TellsMenuModeApartFromNormalTyping()
+    {
+        // 「上屏返回 Ok、目标窗口里一个字也没有」的既知成因之一：目标应用被一次孤立的 Alt 按放
+        // 推进了菜单模式，此后所有按键都归菜单，而注入器无从察觉（2026-08-09 记事本实测，
+        // 用户看到的正是快捷键下划线亮起、一个字也没进去）。
+        //
+        // 一条用例里正反都验：只有把「没进菜单」也钉住，为真的那一半才说明这个探针有区分力。
+        using var window = new TestWindow("probe-menu-mode", withTextBox: true, withMenuBar: true);
+        Assert.True(window.BringToForeground(), "系统拒绝了前台抢占，本条断言无效");
+
+        Assert.False(Probe.IsInMenuMode(window.Handle), "还没碰 Alt 就说在菜单模式里");
+
+        // 孤立的一次 Alt 按放——中间一个键也不夹，这正是 Windows 判「激活菜单栏」的形状。
+        SynthesizedInput.SendPhysical(
+            (VirtualKey.VK_LMENU, SynthesizedInput.ScanCodeLeftAlt, false),
+            (VirtualKey.VK_LMENU, SynthesizedInput.ScanCodeLeftAlt, true));
+
+        Assert.True(
+            WaitFor(() => Probe.IsInMenuMode(window.Handle)),
+            "孤立的 Alt 按放之后没测出菜单模式，本探针没有区分力");
+
+        // 收摊：菜单开着会吃掉后面每一条用例的按键。
+        LeaveMenuMode(window);
+    }
+
+    [Fact]
+    public async Task InjectingWhileTheTargetSitsInMenuMode_StillLandsTheText()
+    {
+        // **这是那条真机故障的可复现形态。** 进入菜单模式的原因我在合成环境里造不出来
+        // （2026-08-09 连试五种形状都复现不了），但「一旦进去了会怎样」造得出来，而注入器
+        // 该做的事也正是在这一层：发字之前先把目标从菜单模式里拽出来。
+        using var window = new TestWindow("inject-in-menu-mode", withTextBox: true, withMenuBar: true);
+        Assert.True(window.BringToForeground(), "系统拒绝了前台抢占，本条断言无效");
+
+        // 阴性对照排在前面：先证明菜单模式真会把字吃掉，否则下面那半就是空断言。
+        EnterMenuMode(window);
+
+        SynthesizedInput.SendUnicode("裸注入");
+
+        // **实测：经典 user32 菜单栏只吃掉第一个字符**（它被当成助记符，配不上就退出菜单模式），
+        // 后面的照进。故这里断言的是「丢了第一个字」，不是「一个字也没进」——写成后者会假红，
+        // 而更要紧的是，那会把这条测试真正测到的东西记错。
+        //
+        // 记事本上的表现比这更狠（用户实测 9 字一个不剩），差别在于它那套快捷键提示由框架自己管，
+        // 不是 DefWindowProc 这一套。本条钉住的是共有的那一半：**菜单模式确实会吞掉注入的字符**。
+        Assert.Equal("注入", window.WaitForText(text => text == "注入", TimeSpan.FromSeconds(3)));
+
+        window.ClearText();
+
+        // 正题：同样在菜单模式里，走注入器这条路，字必须一个不少地进去。
+        EnterMenuMode(window);
+
+        var injector = new SendInputTextInjector(
+            new WindowProbe(NullLogger<WindowProbe>.Instance),
+            NullLogger<SendInputTextInjector>.Instance);
+
+        var result = await injector.InjectAsync("第一句话", window.Handle, TestContext.Current.CancellationToken);
+
+        Assert.Equal(InjectResult.Ok, result);
+        Assert.Equal("第一句话", window.WaitForText(text => text == "第一句话", TimeSpan.FromSeconds(5)));
+        Assert.False(Probe.IsInMenuMode(window.Handle), "注入完还留在菜单模式里");
+    }
+
+    /// <summary>把靶子推进菜单模式：孤立的一次 Alt 按放，中间一个键也不夹。</summary>
+    private static void EnterMenuMode(TestWindow window)
+    {
+        SynthesizedInput.SendPhysical(
+            (VirtualKey.VK_LMENU, SynthesizedInput.ScanCodeLeftAlt, false),
+            (VirtualKey.VK_LMENU, SynthesizedInput.ScanCodeLeftAlt, true));
+
+        Assert.True(WaitFor(() => Probe.IsInMenuMode(window.Handle)), "没能把靶子推进菜单模式");
+    }
+
+    /// <summary>把靶子从菜单模式里弄出来。再按一次 Alt 即退出，与 Esc 不同，它对应用没有别的含义。</summary>
+    private static void LeaveMenuMode(TestWindow window)
+    {
+        SynthesizedInput.SendPhysical(
+            (VirtualKey.VK_LMENU, SynthesizedInput.ScanCodeLeftAlt, false),
+            (VirtualKey.VK_LMENU, SynthesizedInput.ScanCodeLeftAlt, true));
+
+        WaitFor(() => !Probe.IsInMenuMode(window.Handle));
+    }
+
+    private static bool WaitFor(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return true;
+            }
+
+            Thread.Sleep(20);
+        }
+
+        return condition();
     }
 
     [Fact]

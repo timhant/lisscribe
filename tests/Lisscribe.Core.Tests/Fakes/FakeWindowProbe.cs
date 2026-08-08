@@ -26,4 +26,9 @@ public sealed class FakeWindowProbe : IWindowProbe
     public bool CanInjectInto(nint window) => !ElevatedWindows.Contains(window);
 
     public string Describe(nint window) => $"假窗口 0x{window:X}";
+
+    /// <summary>加入此集合的窗口句柄会被判为「所在线程正处在菜单模式」。</summary>
+    public HashSet<nint> WindowsInMenuMode { get; } = [];
+
+    public bool IsInMenuMode(nint window) => WindowsInMenuMode.Contains(window);
 }

@@ -30,7 +30,11 @@ internal sealed class FakeWindowProbe(bool canInject) : IWindowProbe
     }
 
     /// <summary>纯日志用，走真的 user32，不造假。</summary>
-    public string Describe(nint window) =>
-        new WindowProbe(Microsoft.Extensions.Logging.Abstractions.NullLogger<WindowProbe>.Instance)
-            .Describe(window);
+    public string Describe(nint window) => Real.Describe(window);
+
+    /// <summary>与前台窗口同理：菜单模式是真实的窗口状态，假一个就等于测试自己回答自己。</summary>
+    public bool IsInMenuMode(nint window) => Real.IsInMenuMode(window);
+
+    private static WindowProbe Real =>
+        new(Microsoft.Extensions.Logging.Abstractions.NullLogger<WindowProbe>.Instance);
 }
