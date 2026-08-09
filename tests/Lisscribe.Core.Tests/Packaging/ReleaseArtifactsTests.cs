@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using Lisscribe.Core.Asr;
+using Lisscribe.Core.Config;
 using Xunit;
 
 namespace Lisscribe.Core.Tests.Packaging;
@@ -309,6 +310,88 @@ public sealed class ReleaseArtifactsTests
             .ToArray();
 
         Assert.Equal(ExpectedWeightsFor(flavour), weights);
+    }
+
+    /// <summary>
+    /// **带 Qwen3 的包必须预置 config.json，否则开箱即报「模型缺失」。**
+    /// </summary>
+    /// <remarks>
+    /// 默认配置指的是 <c>./models/sense-voice</c>（见 <see cref="LisscribeConfig.CreateDefault"/>），
+    /// 而那个包里只有 <c>qwen3-asr</c>。2026-08-09 真机实测：下 871MB、解压、双击，日志里是
+    /// <c>缺少模型文件：model.int8.onnx、tokens.txt</c>——比不带模型的包还糟，因为用户以为
+    /// 自己下的就是开箱即用的那个。
+    /// <para>
+    /// 期望值取自 <see cref="LisscribeConfig.CreateDefault"/>，不在这里手抄一份：脚本里那份
+    /// 预置配置是**第二处默认值**，两处各写各的，改了默认热键之后包里那份还是旧的。
+    /// 读法走真的 <see cref="ConfigStore"/>，顺带把「这份 JSON 结构完不完整」一起验了——
+    /// 缺一整节的话它会静默回落默认值并把原文存成 .bad，而那正是最难发现的一种坏包。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TheQwen3Archive_ShipsAConfigThatPointsAtTheModelItActuallyCarries()
+    {
+        var root = $"lisscribe-{DeclaredVersion()}-win-x64{Qwen3Flavour}";
+        var archive = InRepo($"dist/{root}.zip");
+
+        Assert.SkipWhen(!File.Exists(archive), $"dist 下没有 {root}.zip，先跑 scripts\\publish.ps1");
+
+        using var zip = ZipFile.OpenRead(archive);
+        var entry = zip.GetEntry($"{root}/config.json");
+
+        Assert.NotNull(entry);
+
+        var scratch = Directory.CreateTempSubdirectory("lisscribe-config-probe");
+
+        try
+        {
+            var path = Path.Combine(scratch.FullName, "config.json");
+
+            entry!.ExtractToFile(path);
+
+            var store = new ConfigStore(path);
+            var config = store.Load();
+
+            // 不是 Ok 就说明这份 JSON 缺段或解析不了，Load 已经悄悄换成默认值了。
+            Assert.Equal(ConfigLoadOutcome.Ok, store.LastOutcome);
+
+            Assert.Equal(AsrEngines.Qwen3Asr, config.Asr.Engine);
+            Assert.Equal(AsrEngines.DefaultModelDir(AsrEngines.Qwen3Asr), config.Asr.ModelDir);
+
+            // 除了引擎那一节，其余必须原样是默认值——预置配置的职责只有「指对模型」这一件事。
+            // 逐字段比而不是比整个 record：HotkeySection 里那个 string[] 走的是引用相等。
+            var expected = LisscribeConfig.CreateDefault();
+
+            Assert.Equal(expected.Version, config.Version);
+            Assert.Equal(expected.Hotkey.Modifiers, config.Hotkey.Modifiers);
+            Assert.Equal(expected.Hotkey.MainKey, config.Hotkey.MainKey);
+            Assert.Equal(expected.Hotkey.HoldThresholdMs, config.Hotkey.HoldThresholdMs);
+            Assert.Equal(expected.Asr.Provider, config.Asr.Provider);
+            Assert.Equal(expected.Output, config.Output);
+            Assert.Equal(expected.App, config.App);
+        }
+        finally
+        {
+            scratch.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 另两个包<b>不</b>预置配置：默认值本就指着 sense-voice，精简包则由用户自己决定用哪档。
+    /// 多塞一份只会把用户后来改过的配置在下次覆盖安装时替换掉。
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(SenseVoiceFlavour)]
+    public void TheOtherArchives_DoNotShipAConfig(string flavour)
+    {
+        var root = $"lisscribe-{DeclaredVersion()}-win-x64{flavour}";
+        var archive = InRepo($"dist/{root}.zip");
+
+        Assert.SkipWhen(!File.Exists(archive), $"dist 下没有 {root}.zip，先跑 scripts\\publish.ps1");
+
+        using var zip = ZipFile.OpenRead(archive);
+
+        Assert.Null(zip.GetEntry($"{root}/config.json"));
     }
 
     /// <summary>

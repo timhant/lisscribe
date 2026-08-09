@@ -210,6 +210,50 @@ if ($Model -ne 'none') {
 # 换台机器打开就是乱码。
 Set-Content -Path (Join-Path $outputPath 'models\README.txt') -Value $modelsReadme -Encoding utf8
 
+# **带 Qwen3 的包必须预置 config.json。** 默认配置指的是 ./models/sense-voice，而这个包里
+# 只有 qwen3-asr —— 不预置的话，用户下了 871MB、解压、双击，迎面一句「缺少模型文件
+# model.int8.onnx、tokens.txt」（2026-08-09 真机实测），比不带模型的包还糟。
+# 另两档不预置：默认值本就指着 sense-voice，而精简包该由用户自己决定用哪档。
+#
+# 这份 JSON 是**第二处默认值**，与 LisscribeConfig.CreateDefault 有漂移的风险。
+# ReleaseArtifactsTests 会把它从包里掏出来、用真的 ConfigStore 读一遍，
+# 再跟 CreateDefault() 逐字段比对——改了默认热键却忘了改这里，那条会红。
+if ($Model -eq 'qwen3') {
+    $presetConfig = @'
+{
+  "version": 1,
+  "hotkey": {
+    "modifiers": [
+      "Ctrl",
+      "Alt"
+    ],
+    "mainKey": "Space",
+    "holdThresholdMs": 300
+  },
+  "asr": {
+    "engine": "Qwen3Asr",
+    "modelDir": "./models/qwen3-asr",
+    "provider": "cpu"
+  },
+  "output": {
+    "mode": "SendInput",
+    "restoreClipboard": true,
+    "trimTrailingPunctuation": true,
+    "trimPunctuationMaxChars": 8,
+    "chineseNumberItn": true
+  },
+  "app": {
+    "autoStart": false,
+    "logLevel": "Info"
+  }
+}
+'@
+
+    Set-Content -Path (Join-Path $outputPath 'config.json') -Value $presetConfig -Encoding utf8
+
+    Write-Host 'OK  config.json（预置为 Qwen3Asr）'
+}
+
 # 压成一个归档，那才是能挂到 Release 上、能发给别人的东西。
 # 条目名统一加上 $packageName 前缀：解压后是一个目录，而不是把三百多个文件铺进下载文件夹。
 #
