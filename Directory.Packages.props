@@ -19,6 +19,12 @@
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageVersion Include="Serilog.Extensions.Logging.File" Version="3.0.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <!-- trx 报告器**不在** Microsoft.Testing.Platform 里，要单独引这个包：不引的话
+         report-trx 那个参数（命令行上带两道杠）是未知选项，测试主机在参数解析阶段就退出，
+         一条测试也不跑，而 dotnet test 报的是「Tests failed」且不打印任何汇总行
+         ——看着像测试红了。CI 的两步测试都带这个参数，2026-07-30 到 08-02 那六次全红都是它。
+         注：XML 注释里写不了那两道杠，连续两个连字符是非法 XML。 -->
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="1.9.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.8.0" />
   </ItemGroup>

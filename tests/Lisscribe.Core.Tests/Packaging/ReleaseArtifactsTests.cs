@@ -101,6 +101,33 @@ public sealed class ReleaseArtifactsTests
     }
 
     /// <summary>
+    /// CI 命令行上的 trx 报告参数，每个测试项目都得有那个扩展包接得住。
+    /// </summary>
+    /// <remarks>
+    /// 那个参数<b>不是</b>测试主机自带的（xunit.v3 + Microsoft.Testing.Platform），要单独引
+    /// <c>Microsoft.Testing.Extensions.TrxReport</c>。少了它，测试主机在参数解析阶段就退出、
+    /// 一条测试也不跑，而 <c>dotnet test</c> 报「Tests failed」且<b>不打印任何汇总行</b>
+    /// ——看着像测试红了。2026-07-30 到 08-02 那六次 CI 全红就是这么来的，六次一条测试没跑过。
+    /// <para>
+    /// 受检范围取自 <c>tests\</c> 目录下的 csproj，判据取自 CI 的 yml，两侧互不取用：
+    /// 让 yml 自己划定该查谁，新增一个测试项目忘了引包它照样绿。
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(EveryTestProject))]
+    public void EveryTestProject_CarriesTheReporterThatTheCiCommandLineAsksFor(string csproj)
+    {
+        var yml = File.ReadAllText(InRepo(".github/workflows/ci.yml"));
+
+        // 前提。CI 哪天不再要 trx 了，这一条会先红，讯息也说得清该改哪儿。
+        Assert.Contains("report-trx", yml);
+
+        Assert.Contains(
+            """<PackageReference Include="Microsoft.Testing.Extensions.TrxReport" """,
+            File.ReadAllText(csproj));
+    }
+
+    /// <summary>
     /// 取模型脚本里写死的文件名，必须跟 <see cref="AsrModelPaths"/> / <see cref="Qwen3ModelPaths"/>
     /// 的常量对得上。对不上时的症状是「脚本说下完了，程序说模型缺失」。
     /// </summary>
@@ -396,6 +423,22 @@ public sealed class ReleaseArtifactsTests
         Assert.NotEmpty(names);
 
         return [.. names];
+    }
+
+    /// <summary>
+    /// <c>tests\</c> 下的每个测试项目。CI 是对整个解决方案跑的，漏掉任何一个都会让那一步整个失败。
+    /// </summary>
+    public static TheoryData<string> EveryTestProject()
+    {
+        var projects = Directory
+            .EnumerateFiles(InRepo("tests"), "*.csproj", SearchOption.AllDirectories)
+            .Order()
+            .ToArray();
+
+        // 一个都没读到时下面那条会「零用例通过」——静默的空覆盖，与上面同一条理由。
+        Assert.NotEmpty(projects);
+
+        return [.. projects];
     }
 
     public static TheoryData<string> EveryRequiredModelFileName() =>
