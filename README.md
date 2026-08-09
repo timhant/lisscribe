@@ -33,25 +33,29 @@ That's the whole interaction. Lisscribe sits in the tray and does nothing until 
   tier you pick. English works too.
 - **No .NET install needed.** The runtime ships inside the zip.
 
-Not for you if: you need macOS or Linux, you want real-time streaming captions, or you want a
-turnkey download — the speech model is a separate, one-time download (see below for why).
+Not for you if: you need macOS or Linux, or you want real-time streaming captions.
 
 ## Quick start
 
-Grab `lisscribe-<version>-win-x64.zip` from
-[Releases](https://github.com/timhant/lisscribe/releases).
+Three downloads on the [Releases](https://github.com/timhant/lisscribe/releases) page — pick one:
+
+| Download | Size | What's inside |
+| --- | --- | --- |
+| `lisscribe-<version>-win-x64-sense-voice.zip` | ~218 MB | App **and** the default model. Unzip, run, done. |
+| `lisscribe-<version>-win-x64-qwen3.zip` | ~871 MB | App and the high-accuracy model (better at Cantonese, mixed Chinese/English, noise). |
+| `lisscribe-<version>-win-x64.zip` | ~65 MB | App only. Fetch a model yourself, per `models\README.txt`. |
+
+Then:
 
 1. Unzip anywhere
-2. Fetch a model as described in `models\README.txt` — **model weights are not bundled**
-3. Run `Lisscribe.App.exe`
-4. Hold `Ctrl + Alt + Space`, talk, release
+2. Run `Lisscribe.App.exe`
+3. Hold `Ctrl + Alt + Space`, talk, release
 
 It lives in the tray. Right-click for settings, to pause the hotkey, or to open the log and model
 folders. Hotkey, text-delivery method and recording limit are all configurable.
 
-**Why isn't the model in the zip?** The weights carry their own licences, separate from this
-project's MIT — and one of them is not an open-source licence at all (see [Licence](#licence)).
-Redistributing them inside the release would put you and me on the wrong side of those terms.
+The bundled weights keep their own licences, which are **not** this project's MIT — one of them is
+not an open-source licence at all. Full texts ship inside those zips; see [Licence](#licence).
 
 ## Which model tier
 
@@ -97,9 +101,14 @@ lands in `dist\`.
 Code is **MIT**, see [LICENSE](LICENSE). The recognition engine,
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), is Apache-2.0.
 
-**Model weights are not distributed with this project and are licensed differently from the
-code**: SenseVoiceSmall falls under Alibaba FunASR's `MODEL_LICENSE` (custom terms — **neither**
-MIT nor Apache), and Qwen3-ASR is Apache-2.0. Check them yourself before use.
+**Model weights are licensed separately from the code.** SenseVoiceSmall falls under Alibaba
+FunASR's Model Open Source License Agreement v1.1 — custom terms, **neither** MIT nor Apache. It
+does permit redistribution, which is why the bundled download exists, on condition that source and
+author are attributed and the model name kept; it also carries clauses you will not find in a
+standard open-source licence (§4.2 revokes your licence for "denigration" of the software; §6 lets
+the terms be revised unilaterally). Qwen3-ASR is Apache-2.0. Full texts ship inside the bundled
+zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODEL_LICENSE.txt) and
+[`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt); read them before you rely on either model.
 
 ---
 
@@ -128,23 +137,29 @@ MIT nor Apache), and Qwen3-ASR is Apache-2.0. Check them yourself before use.
 - **中文够用**，粤语与中英混说看你选哪一档模型。英文也认。
 - **不必装 .NET**，运行时已在包里。
 
-不适合你，如果：你要 macOS 或 Linux；你要实时滚动字幕；你要下载完即用——语音模型是单独下的
-一次性步骤（下面说了为什么）。
+不适合你，如果：你要 macOS 或 Linux；你要实时滚动字幕。
 
 ## 快速开始
 
-从 [Releases](https://github.com/timhant/lisscribe/releases) 下载 `lisscribe-<版本>-win-x64.zip`。
+[Releases](https://github.com/timhant/lisscribe/releases) 页上有三个包，挑一个：
+
+| 下载 | 体积 | 里面有什么 |
+| --- | --- | --- |
+| `lisscribe-<版本>-win-x64-sense-voice.zip` | 约 218 MB | 程序**加**默认档模型。解压就能用。 |
+| `lisscribe-<版本>-win-x64-qwen3.zip` | 约 871 MB | 程序加高精度档模型（粤语、中英混说、嘈杂环境更准）。 |
+| `lisscribe-<版本>-win-x64.zip` | 约 65 MB | 只有程序，模型按包里 `models\README.txt` 自己取。 |
+
+然后：
 
 1. 解压到任意目录
-2. 按包里 `models\README.txt` 的说明下载模型放进 `models\`（**权重不随包分发**）
-3. 双击 `Lisscribe.App.exe`
-4. 按住 `Ctrl + Alt + Space` 说话，松开上屏
+2. 双击 `Lisscribe.App.exe`
+3. 按住 `Ctrl + Alt + Space` 说话，松开上屏
 
 程序常驻托盘。右键托盘图标可以打开配置窗、暂停热键、打开日志与模型目录。
 热键、上屏方式、录音时长等都在配置窗里改。
 
-**为什么模型不打进包里？**那些权重各有各的许可，与本项目的 MIT 不是一回事，其中一档
-**根本不是开源许可**（见下面「许可」）。把它们塞进发行包分发，你我都站在那些条款的对面。
+随包的权重各有各的许可，与本项目的 MIT **不是一回事**，其中一档**根本不是开源许可**。
+许可全文就在那两个包里，另见下面「许可」。
 
 ## 选哪档模型
 
@@ -185,5 +200,10 @@ models\qwen3-asr\{conv_frontend.onnx, encoder.int8.onnx, decoder.int8.onnx, toke
 
 代码 **MIT**，见 [LICENSE](LICENSE)。识别引擎 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 为 Apache-2.0。
 
-**模型权重不随本项目分发，且许可与代码不同**：SenseVoiceSmall 适用阿里 FunASR 的
-`MODEL_LICENSE`（自定义条款，非 MIT 或 Apache），Qwen3-ASR 为 Apache-2.0。用之前请自己确认一遍。
+**模型权重的许可与代码不是一回事。**SenseVoiceSmall 适用阿里 FunASR 模型开源协议 v1.1，
+自定义条款，**既不是 MIT 也不是 Apache**。它确实允许再分发（带模型的包因此才存在），条件是
+注明出处与作者、保留模型名称；但它还带着常见开源许可里没有的条款——§4.2 对该软件的「无端
+诋毁、恶意抹黑或凭空谩骂」将被视为自动放弃全部许可，§6 允许权利人单方修订协议并自动生效。
+Qwen3-ASR 为 Apache-2.0。许可全文随带模型的包走，仓库里则是
+[`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODEL_LICENSE.txt) 与
+[`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt)；依赖哪一档之前请自己读一遍。

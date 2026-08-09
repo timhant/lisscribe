@@ -14,7 +14,12 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
-    [string]$Output = 'dist'
+    [string]$Output = 'dist',
+
+    # 带哪一档权重。none 出精简包（~65MB），另两档出开箱即用的包。
+    # 一次只出一个，三个都要就跑三次——dotnet publish 是增量的，后两次很快。
+    [ValidateSet('none', 'sense-voice', 'qwen3')]
+    [string]$Model = 'none'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,11 +37,44 @@ if (-not $version) {
 }
 
 # 解压出来是一个带名字的目录，不是把三百多个文件铺进用户的下载文件夹。
-$packageName = "lisscribe-$version-win-x64"
+# 带模型的包在名字里说清带的是哪一档：下载页上三个 zip 并排，光有版本号分不出谁是谁。
+$suffix = if ($Model -eq 'none') { '' } else { "-$Model" }
+$packageName = "lisscribe-$version-win-x64$suffix"
 $outputPath = Join-Path $outputRoot $packageName
 $archivePath = Join-Path $outputRoot "$packageName.zip"
 
-Remove-Item -Recurse -Force $outputRoot -ErrorAction SilentlyContinue
+# **只清自己这一份，不清整个 dist。** 三档要连着跑三次，清整个目录会把前两次的产物删掉，
+# 而那正是要一起挂到 Release 上的东西。
+Remove-Item -Recurse -Force $outputPath -ErrorAction SilentlyContinue
+Remove-Item -Force $archivePath -ErrorAction SilentlyContinue
+
+# 带模型这一档先把权重找齐再动手：编译 + 拷 300MB 之后才发现模型不在，白等一遍。
+$modelSource = $null
+
+if ($Model -ne 'none') {
+    $modelDirName = if ($Model -eq 'sense-voice') { 'sense-voice' } else { 'qwen3-asr' }
+    $modelSource = Join-Path $repoRoot "models\$modelDirName"
+
+    $modelRequired = if ($Model -eq 'sense-voice') {
+        @('model.int8.onnx', 'tokens.txt')
+    }
+    else {
+        @('conv_frontend.onnx', 'encoder.int8.onnx', 'decoder.int8.onnx',
+          'tokenizer\vocab.json', 'tokenizer\merges.txt', 'tokenizer\tokenizer_config.json')
+    }
+
+    # **按清单拷，不整目录拷。** 上游包里还躺着 test_wavs\（示例音频，qwen3 那档 12.5MB）
+    # 与 README.md，对用户毫无用处，只是让每个下载的人多等一会儿。
+    # MODEL_LICENSE 是上游随权重发的许可原件，有就带上——署名与保留出处正是那份协议的要求；
+    # 不同版本的官方包不一定有它，故不列为必需。
+    $modelOptional = if ($Model -eq 'sense-voice') { @('MODEL_LICENSE') } else { @('README.md') }
+
+    foreach ($file in $modelRequired) {
+        if (-not (Test-Path -LiteralPath (Join-Path $modelSource $file) -PathType Leaf)) {
+            throw "打带模型的包，但 $modelSource 里缺 $file。先跑 scripts\fetch-models.ps1 取模型。"
+        }
+    }
+}
 
 & dotnet publish (Join-Path $repoRoot 'src\Lisscribe.App\Lisscribe.App.csproj') `
     --configuration $Configuration `
@@ -82,8 +120,47 @@ foreach ($file in @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'licenses\Apache-2.0.tx
     Write-Host "OK  $file"
 }
 
-# 模型目录只放说明，**绝不打包权重**。两档都要写：许可不同，目录也不同。
+# FunASR 那份模型协议只对带 SenseVoice 权重的包才有意义。精简包与 Qwen3 包里留着它，
+# 只会让人以为包里有那档权重。Qwen3 权重是 Apache-2.0，用的是上面那份 Apache-2.0.txt。
+if ($Model -ne 'sense-voice') {
+    Remove-Item -LiteralPath (Join-Path $outputPath 'licenses\FunASR-MODEL_LICENSE.txt') `
+        -Force -ErrorAction SilentlyContinue
+}
+elseif (-not (Test-Path -LiteralPath (Join-Path $outputPath 'licenses\FunASR-MODEL_LICENSE.txt'))) {
+    throw '带 SenseVoice 权重却没有 FunASR 模型协议全文 —— 分发时缺许可文件是许可事故。'
+}
+
 New-Item -ItemType Directory -Force -Path (Join-Path $outputPath 'models') | Out-Null
+
+# 带模型这一档：按清单把权重拷进去。**这是分发行为**，许可义务见上面那几行与 THIRD-PARTY-NOTICES.md。
+if ($Model -ne 'none') {
+    $modelTarget = Join-Path $outputPath "models\$modelDirName"
+
+    foreach ($file in ($modelRequired + $modelOptional)) {
+        $from = Join-Path $modelSource $file
+
+        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) {
+            continue    # 必需项在上面已经拦过一轮，走到这里还缺的只能是可选项。
+        }
+
+        $to = Join-Path $modelTarget $file
+
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+        Copy-Item -LiteralPath $from -Destination $to
+    }
+
+    # 拷完再验一遍。Copy-Item 撞上磁盘满、路径过长时会**部分成功**，
+    # 而那种包解压出来只缺一个文件，用户看到的是「模型损坏」。
+    foreach ($file in $modelRequired) {
+        $path = Join-Path $modelTarget $file
+
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "权重没拷全：$file 不在包里。"
+        }
+
+        Write-Host "OK  models\$modelDirName\$file"
+    }
+}
 
 $modelsReadme = @'
 模型权重不随本程序分发，请自行下载后放到这里。两档任选其一即可，都放也行。
@@ -112,8 +189,22 @@ $modelsReadme = @'
                         要求署名并保留模型名，另含若干非标准条款。
   Qwen3-ASR 权重        Apache-2.0。
 
-两者都与本程序的 MIT 代码许可不同，故不随程序分发。
+两者都与本程序的 MIT 代码许可不同，请分别遵守。带权重的发行包里附有对应的许可全文
+（见 licenses\ 目录与 THIRD-PARTY-NOTICES.md），精简包不含权重。
 '@
+
+# 带模型的包里，上面那句「不随本程序分发」当场自相矛盾。开头补一段说清现状，
+# 后面那份仍然有用——它讲的是「想换另一档怎么取」。
+if ($Model -ne 'none') {
+    $bundled = if ($Model -eq 'sense-voice') { '默认档 SenseVoice' } else { '高精度档 Qwen3-ASR' }
+
+    $modelsReadme = @"
+本包已带上$bundled 的权重，就在 models\$modelDirName\ 里，开箱即用，不必再下载。
+
+下面这份说明是给「想换成另一档」的人看的。
+
+"@ + $modelsReadme
+}
 
 # 显式 UTF8：Set-Content 默认按系统 ANSI 代码页写，这份说明里全是中文，
 # 换台机器打开就是乱码。
@@ -155,7 +246,9 @@ if (-not (Test-Path -LiteralPath $archivePath)) {
 
 $archiveSizeMb = [math]::Round((Get-Item -LiteralPath $archivePath).Length / 1MB, 1)
 
+$what = if ($Model -eq 'none') { '不带权重' } else { "带 $Model 权重" }
+
 Write-Host ""
-Write-Host "发布完成：$outputPath"
+Write-Host "发布完成：$outputPath（$what）"
 Write-Host "发行包：  $archivePath（$archiveSizeMb MB）"
 Write-Host "下一步：按 docs\clean-machine-checklist.md 在一台干净机器上验收。"

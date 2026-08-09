@@ -263,46 +263,107 @@ public sealed class ReleaseArtifactsTests
     }
 
     /// <summary>
-    /// **真开包验**：条目名一律正斜杠，四份许可在里面，模型权重不在里面。
+    /// **真开包验**：条目名一律正斜杠，许可齐全，而权重<b>不多不少，正好是包名声称的那些</b>。
     ///
     /// <para>
     /// 预言机是打好的那个 zip 本身，与生成它的脚本无关——只验脚本文本的话，
     /// 「脚本看着对、包却是错的」这一格永远查不出来（本条就是这么发现反斜杠那个坑的）。
-    /// 没打过包时跳过：CI 不跑发布。
+    /// 没打过那一档时跳过：CI 不跑发布，本机也可能只打了其中一个。
+    /// </para>
+    /// <para>
+    /// <b>权重那一格断的是「集合相等」，不是「不检查 .onnx」。</b> 0.3.0 起带模型的包要发，
+    /// 于是原先那道「任何 .onnx 都不许进包」的硬闸不能再用；但换成不看，等于把拦住误打包
+    /// 整份权重的闸门整个拆掉——精简包混进 756MB 的 decoder、或 sense-voice 包里混进 Qwen3
+    /// 那三个，都将无声通过。故改成**逐档点名**：期望集合来自
+    /// <see cref="AsrModelPaths"/> / <see cref="Qwen3ModelPaths"/> 的常量，多一个少一个都红。
+    /// </para>
+    /// <para>
+    /// 挑包按「当前版本 + 该档后缀」精确命名。升过版本号之后 <c>dist\</c> 下常有新旧多个 zip
+    /// 并排躺着，模糊匹配抓到的是旧的——它当然全绿，新包却一格都没查到。
     /// </para>
     /// </summary>
-    [Fact]
-    public void TheProducedArchive_UsesForwardSlashes_AndCarriesTheLicencesButNoWeights()
+    [Theory]
+    [MemberData(nameof(EveryArchiveFlavour))]
+    public void TheProducedArchive_UsesForwardSlashes_AndCarriesExactlyTheWeightsItsNameClaims(
+        string flavour)
     {
-        // **挑的必须是「当前版本」那个包。** 升过版本号之后，`dist\` 下常常新旧两个 zip 并排
-        // 躺着，而 `FirstOrDefault()` 抓到的是旧的——它当然全绿，新包却一格都没查到。
-        // 判据取自 props 的版本号，与 dist 里恰好有什么无关。
-        var version = DeclaredVersion();
-        var archive = Directory.Exists(InRepo("dist"))
-            ? Directory.EnumerateFiles(InRepo("dist"), "*.zip")
-                .FirstOrDefault(path => Path.GetFileName(path).Contains(version, StringComparison.Ordinal))
-            : null;
+        var root = $"lisscribe-{DeclaredVersion()}-win-x64{flavour}";
+        var archive = InRepo($"dist/{root}.zip");
 
-        Assert.SkipWhen(archive is null, $"dist 下没有 {version} 的发行包，先跑 scripts\\publish.ps1");
+        Assert.SkipWhen(!File.Exists(archive), $"dist 下没有 {root}.zip，先跑 scripts\\publish.ps1");
 
-        using var zip = ZipFile.OpenRead(archive!);
+        using var zip = ZipFile.OpenRead(archive);
         var names = zip.Entries.Select(entry => entry.FullName).ToArray();
 
         Assert.DoesNotContain(names, name => name.Contains('\\'));
 
-        var root = Path.GetFileNameWithoutExtension(archive!);
-
-        foreach (var required in (string[])[
-            "LICENSE", "THIRD-PARTY-NOTICES.md",
-            "licenses/Apache-2.0.txt", "licenses/ANGLE-LICENSE.txt",
-            "models/README.txt", "Lisscribe.App.exe", "onnxruntime.dll", "sherpa-onnx-c-api.dll"])
+        foreach (var required in CommonArchiveEntries.Concat(ExtraEntriesFor(flavour)))
         {
             Assert.Contains($"{root}/{required}", names);
         }
 
-        // 权重许可不允许随包分发，且包会因此涨到 1GB 以上。
-        Assert.DoesNotContain(names, name => name.EndsWith(".onnx", StringComparison.Ordinal));
+        var weights = names
+            .Where(name => name.EndsWith(".onnx", StringComparison.Ordinal))
+            .Select(name => name[(root.Length + 1)..])
+            .Order()
+            .ToArray();
+
+        Assert.Equal(ExpectedWeightsFor(flavour), weights);
     }
+
+    /// <summary>
+    /// 三种发行包形态的后缀。<b>列在这里而不是数 <c>dist\</c> 里有什么</b>——
+    /// 拿实际产出划定受检范围，publish 少打了一档它照样全绿。
+    /// </summary>
+    public static TheoryData<string> EveryArchiveFlavour() => ["", SenseVoiceFlavour, Qwen3Flavour];
+
+    private const string SenseVoiceFlavour = "-sense-voice";
+    private const string Qwen3Flavour = "-qwen3";
+
+    /// <summary>三种形态都必须有的。</summary>
+    private static readonly string[] CommonArchiveEntries = [
+        "LICENSE", "THIRD-PARTY-NOTICES.md",
+        "licenses/Apache-2.0.txt", "licenses/ANGLE-LICENSE.txt",
+        "models/README.txt", "Lisscribe.App.exe", "onnxruntime.dll", "sherpa-onnx-c-api.dll"];
+
+    /// <summary>该档权重的**完整**清单，路径取自引擎常量，不手抄字面量。</summary>
+    private static string[] ExpectedWeightsFor(string flavour) => flavour switch
+    {
+        SenseVoiceFlavour => [$"{SenseVoiceDir}/{AsrModelPaths.ModelFileName}"],
+        Qwen3Flavour =>
+        [
+            // Order() 之后的字母序，不是官方包里那个顺序。
+            $"{Qwen3Dir}/{Qwen3ModelPaths.ConvFrontendFileName}",
+            $"{Qwen3Dir}/{Qwen3ModelPaths.DecoderFileName}",
+            $"{Qwen3Dir}/{Qwen3ModelPaths.EncoderFileName}",
+        ],
+        _ => [],
+    };
+
+    /// <summary>该档除权重之外还必须带的：词表，以及那一档特有的许可全文。</summary>
+    private static string[] ExtraEntriesFor(string flavour) => flavour switch
+    {
+        // SenseVoice 的权重适用 FunASR 自定义协议，全文必须随包——这是分发义务，不是客套。
+        SenseVoiceFlavour =>
+        [
+            $"{SenseVoiceDir}/{AsrModelPaths.TokensFileName}",
+            "licenses/FunASR-MODEL_LICENSE.txt",
+        ],
+        // Qwen3 是 Apache-2.0，全文即上面那份 licenses/Apache-2.0.txt，不必另放一份。
+        Qwen3Flavour =>
+        [
+            $"{Qwen3Dir}/{Qwen3ModelPaths.TokenizerDirName}/{Qwen3ModelPaths.VocabFileName}",
+        ],
+        _ => [],
+    };
+
+    private static string SenseVoiceDir => ArchiveModelDir(AsrEngines.SenseVoice);
+
+    private static string Qwen3Dir => ArchiveModelDir(AsrEngines.Qwen3Asr);
+
+    /// <summary>把 <c>./models/sense-voice</c> 这种默认目录换算成 zip 里的条目前缀。</summary>
+    private static string ArchiveModelDir(string engine) =>
+        AsrEngines.DefaultModelDir(engine).Replace("./", string.Empty).Replace('\\', '/');
 
     /// <summary>
     /// **包名里的版本号必须取自 <c>Directory.Build.props</c>，不许在脚本里另写一份。**
@@ -326,8 +387,9 @@ public sealed class ReleaseArtifactsTests
     /// 包名要说清这是给哪个平台的：本项目只出 win-x64，而下载页上光有版本号看不出这一点。
     ///
     /// <para>
-    /// 断言挑的是 <c>-win-x64"</c>（包名字符串的结尾），不是裸的 <c>win-x64</c>——后者在
+    /// 断言挑的是包名那句里 <c>-win-x64</c> 后面紧跟着的东西，不是裸的 <c>win-x64</c>——后者在
     /// <c>--runtime win-x64</c> 那一行里早就有了，拿它当判据这条测试从写下来就是绿的。
+    /// 0.3.0 起包名尾部多了一个 <c>$suffix</c>（带哪档权重），故这里连它一起认。
     /// </para>
     /// </summary>
     [Fact]
@@ -335,7 +397,7 @@ public sealed class ReleaseArtifactsTests
     {
         var script = File.ReadAllText(InRepo("scripts/publish.ps1"));
 
-        Assert.Contains("-win-x64\"", script);
+        Assert.Contains("-win-x64$suffix\"", script);
         Assert.Contains(".zip\"", script);
     }
 
