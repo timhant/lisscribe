@@ -70,12 +70,19 @@ jobs:
 
       # 模型测试与确定性那批分开跑。**这里也要排除 Benchmark** ——
       # 它同时带着 RequiresModel 这个 trait，只写 --filter-trait 会把它一起捞进来。
+      #
+      # --ignore-exit-code 8 是给「零测试」那个退出码开的：带模型 trait 的测试全在
+      # Core.Tests，另外两个项目一条也匹配不上，而测试主机把「Zero tests ran」判成失败
+      # （实测 Total: 0 却打 Failed!）。不忽略它，这一步每次都红，红得毫无信息量，
+      # 真出问题时反而没人分得出。**只忽略 8 这一个码**：真有测试失败走的是别的码，
+      # 照样红——阳性对照验过（临时塞一条必败的测试，带着这个开关仍然 EXIT=1）。
       - name: Test (model quality)
         continue-on-error: true
         run: >
           dotnet test lisscribe.sln --no-build --configuration Release
           -- --filter-trait "Category=RequiresModel"
           --filter-not-trait "Category=Benchmark"
+          --ignore-exit-code 8
           --report-trx --report-trx-filename model.trx
 
       - name: Upload test results
