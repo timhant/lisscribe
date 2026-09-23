@@ -328,6 +328,69 @@ internal static partial class User32
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool UnhookWinEvent(nint hWinEventHook);
+
+    /// <summary>那一点不在任何屏上时退回主屏。传 (0,0) 时它本就是主屏，这个标志是防御。</summary>
+    public const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
+
+    /// <summary>失败返回 NULL；带上 <see cref="MONITOR_DEFAULTTOPRIMARY"/> 时实际不会失败。</summary>
+    [LibraryImport("user32.dll")]
+    public static partial nint MonitorFromPoint(POINT pt, uint dwFlags);
+
+    /// <summary><see cref="MONITORINFO.cbSize"/> 必须先填，否则一律失败。</summary>
+    [LibraryImport("user32.dll", SetLastError = true, EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetMonitorInfo(nint monitor, ref MONITORINFO info);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsWindow(nint window);
+
+    /// <summary>只看 <c>WS_VISIBLE</c> 位，不管它是否真被别的窗口挡着。</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsWindowVisible(nint window);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetWindowRect(nint window, ref RECT rect);
+
+    /// <summary>
+    /// 窗口置了 <see cref="WS_EX_LAYERED"/> 却没设过属性时返回 FALSE——而那种窗口整个不可见。
+    /// 这是唯一一条能从系统侧问出「属性到底设上没有」的路。
+    /// </summary>
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetLayeredWindowAttributes(
+        nint window, out uint colorKey, out byte alpha, out uint flags);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct POINT
+{
+    public int X;
+    public int Y;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct RECT
+{
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+}
+
+/// <summary>
+/// <c>rcWork</c> 是扣掉任务栏与工具栏之后的可用区域，<c>rcMonitor</c> 是整块屏。
+/// 两者都是**每次调用现查**的，不像 Avalonia 那份屏幕信息是缓存的。
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct MONITORINFO
+{
+    public uint cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public uint dwFlags;
 }
 
 [StructLayout(LayoutKind.Sequential)]

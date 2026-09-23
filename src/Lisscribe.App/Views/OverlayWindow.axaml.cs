@@ -138,18 +138,30 @@ public sealed partial class OverlayWindow : Window
     /// 取 <c>screen.Scaling</c> 而不是窗口自己的 <c>RenderScaling</c>：前者描述「要摆过去的那块屏」，
     /// 后者描述「它此刻在哪块屏上」，摆过去之前未必相同。
     /// </summary>
-    public void RepositionOn(Screen screen) =>
-        Position = OverlayPlacement.Compute(
+    public void RepositionOn(Screen screen)
+    {
+        var position = OverlayPlacement.Compute(
             screen.WorkingArea, Width, Height, screen.Scaling, MarginDip);
+
+        Position = position;
+
+        // 诊断（开机自启后悬浮条不可见）：Avalonia 的工作区是缓存值，与系统实时值不符时落点会掉进
+        // 任务栏底下。两份一起记，日志自己就能分出「摆错了」还是「压根没画出来」。
+        _logger.LogInformation(
+            "悬浮条落点 {Position}，缩放 {Scaling}，Avalonia 工作区 {Cached}，系统实时工作区 {Live}",
+            position, screen.Scaling, screen.WorkingArea, PrimaryWorkArea.Current());
+    }
 
     private void OnOpened(object? sender, EventArgs e)
     {
         try
         {
+            var handle = TryGetPlatformHandle()?.Handle ?? nint.Zero;
+
             // 每次 Show 都要重设：Show() 刚刚把四个位抹掉了。
-            if (TryGetPlatformHandle() is { } handle && handle.Handle != nint.Zero)
+            if (handle != nint.Zero)
             {
-                _styler.MakeClickThrough(handle.Handle);
+                _styler.MakeClickThrough(handle);
             }
             else
             {
@@ -159,6 +171,10 @@ public sealed partial class OverlayWindow : Window
             }
 
             Reposition();
+
+            // 诊断（开机自启后悬浮条不可见）：坐标算对了却看不见时，现场只能从系统侧取。
+            // 分层属性没设上的窗口整个不可见，而设它那一步刻意丢掉了返回值。
+            _logger.LogInformation("悬浮条现状 {State}", OverlayWindowProbe.Describe(handle));
         }
         catch (Exception ex)
         {
