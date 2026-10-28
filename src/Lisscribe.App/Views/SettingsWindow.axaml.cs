@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Lisscribe.App.ViewModels;
 
 namespace Lisscribe.App.Views;
@@ -76,6 +77,30 @@ public sealed partial class SettingsWindow : Window
     }
 
     private void OnCancelClicked(object? sender, RoutedEventArgs e) => Close();
+
+    /// <summary>弹出文件夹选择框；选中则写回转写目录，取消则不动。</summary>
+    private async void OnBrowseTranscriptDirClicked(object? sender, RoutedEventArgs e)
+    {
+        var storage = TopLevel.GetTopLevel(this)!.StorageProvider;
+
+        // 当前值是存在的目录才当起始位置，否则交给系统默认。
+        var current = _viewModel.TranscriptDir.Trim();
+        var start = Directory.Exists(current) ? await storage.TryGetFolderFromPathAsync(current) : null;
+
+        var picked = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择转写结果保存位置",
+            AllowMultiple = false,
+            SuggestedStartLocation = start,
+        });
+
+        var path = picked.Count > 0 ? picked[0].TryGetLocalPath() : null;
+
+        if (path is not null)
+        {
+            _viewModel.TranscriptDir = path;
+        }
+    }
 
     /// <summary>预览器专用：什么也不做的自启动实现，绝不去碰真注册表。</summary>
     private sealed class PreviewAutoStart : Lisscribe.Core.Abstractions.IAutoStart

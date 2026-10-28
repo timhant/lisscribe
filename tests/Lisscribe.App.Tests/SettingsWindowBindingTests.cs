@@ -99,6 +99,26 @@ public sealed class SettingsWindowBindingTests : IDisposable
         });
     }
 
+    [Fact]
+    public void TheTranscriptDirTextBox_BindsTwoWaysToTheViewModel()
+    {
+        WithWindow((vm, window) =>
+        {
+            var box = Assert.Single(
+                window.GetLogicalDescendants().OfType<TextBox>(),
+                b => b.Name == "TranscriptDirBox");
+
+            // 进来的方向。
+            vm.TranscriptDir = @"D:\我的 录音\转写";
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);
+            Assert.Equal(@"D:\我的 录音\转写", box.Text);
+
+            // 出去的方向。
+            box.Text = @"E:\另一处";
+            Assert.Equal(@"E:\另一处", vm.TranscriptDir);
+        });
+    }
+
     /// <summary>
     /// 换档这条**必须走真控件**：模型目录跟随挂在 <c>OnEngineChanged</c> 上，
     /// 而那个回调只有在 <c>SelectedItem</c> 真把新值写回属性时才触发。

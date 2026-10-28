@@ -202,6 +202,91 @@ public sealed class SettingsViewModelTests : IDisposable
         Assert.Equal("./models/qwen3-asr", reopened.ModelDir);
     }
 
+    // ---- 转写结果保存位置 --------------------------------------------------
+
+    [Fact]
+    public void Load_ShowsTheConfiguredTranscriptDir()
+    {
+        // 带中文与空格的路径：原样进、原样出，不许被截断或转义。
+        var configured = LisscribeConfig.CreateDefault() with
+        {
+            Transcription = new TranscriptionSection(@"D:\我的 录音\转写"),
+        };
+
+        Store.Save(configured);
+
+        var vm = CreateViewModel();
+        vm.Load();
+
+        Assert.Equal(@"D:\我的 录音\转写", vm.TranscriptDir);
+    }
+
+    [Fact]
+    public void Load_WithoutATranscriptionSection_ShowsAnEmptyDir()
+    {
+        // 旧配置没有这一节：校验通过，规范化补成空串。
+        File.WriteAllText(ConfigPath, """
+            {"version":1,
+             "hotkey":{"modifiers":["Ctrl","Alt"],"mainKey":"Space","holdThresholdMs":300},
+             "asr":{"engine":"SenseVoice","modelDir":"./models/sense-voice","provider":"cpu"},
+             "output":{"mode":"SendInput","restoreClipboard":true,
+                       "trimTrailingPunctuation":true,"trimPunctuationMaxChars":8},
+             "app":{"autoStart":false,"logLevel":"Info"}}
+            """);
+
+        var vm = CreateViewModel();
+
+        vm.Load();
+
+        Assert.Equal("", vm.TranscriptDir);
+    }
+
+    [Fact]
+    public void Load_WhenTheConfigIsInvalidAndHasNoTranscriptionSection_ShowsAnEmptyDirWithoutThrowing()
+    {
+        // 校验没过时规范化器原样返回配置，Transcription 仍是 null；打开设置窗不许因此崩。
+        File.WriteAllText(ConfigPath, """
+            {"version":1,
+             "hotkey":{"modifiers":["Ctrl","Alt"],"mainKey":"Space","holdThresholdMs":10000},
+             "asr":{"engine":"SenseVoice","modelDir":"./models/sense-voice","provider":"cpu"},
+             "output":{"mode":"SendInput","restoreClipboard":true,
+                       "trimTrailingPunctuation":true,"trimPunctuationMaxChars":8},
+             "app":{"autoStart":false,"logLevel":"Info"}}
+            """);
+
+        var vm = CreateViewModel();
+
+        vm.Load();
+
+        Assert.Equal("", vm.TranscriptDir);
+    }
+
+    [Fact]
+    public void TrySave_PersistsTheTranscriptDir_WithSurroundingWhitespaceTrimmed()
+    {
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.TranscriptDir = "  E:\\转写 结果\\新目录  ";
+
+        Assert.True(vm.TrySave(out var error), error);
+
+        var saved = new ConfigStore(ConfigPath).Load().Transcription;
+        Assert.NotNull(saved);
+        Assert.Equal(@"E:\转写 结果\新目录", saved.OutputDir);
+    }
+
+    [Fact]
+    public void TrySave_AcceptsADirectoryThatDoesNotExist()
+    {
+        // 目录存不存在、能不能写，转写开始时才查；保存不拦。
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.TranscriptDir = Path.Combine(_dir, "不存在的", "目录");
+
+        Assert.True(vm.TrySave(out var error), error);
+        Assert.False(Directory.Exists(vm.TranscriptDir));
+    }
+
     [Fact]
     public void Load_TakesTheAutoStartStateFromTheRegistry_NotFromTheConfigFile()
     {

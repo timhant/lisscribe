@@ -31,7 +31,7 @@
         界面上摆一个勾了没用的开关，比不摆更糟——已经害人白等过一次重启。 -->
         <Grid
             ColumnDefinitions="170,*"
-            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
             RowSpacing="6"
             ColumnSpacing="12">
 
@@ -112,16 +112,44 @@
             <TextBlock
                 Grid.Row="6"
                 Grid.Column="0"
+                Text="转写结果保存位置"
+                VerticalAlignment="Center" />
+            <Grid
+                Grid.Row="6"
+                Grid.Column="1"
+                ColumnDefinitions="*,Auto"
+                ColumnSpacing="6">
+                <TextBox
+                    Grid.Column="0"
+                    x:Name="TranscriptDirBox"
+                    Text="{Binding TranscriptDir}" />
+                <Button
+                    Grid.Column="1"
+                    Content="浏览…"
+                    Click="OnBrowseTranscriptDirClicked" />
+            </Grid>
+
+            <!-- 留空的去处要在界面上说出来，否则用户不知道空着时文件落在哪。 -->
+            <TextBlock
+                Grid.Row="7"
+                Grid.Column="1"
+                Text="留空则存到程序目录下的 transcripts 文件夹"
+                FontSize="11"
+                Opacity="0.65"
+                TextWrapping="Wrap" />
+            <TextBlock
+                Grid.Row="8"
+                Grid.Column="0"
                 Text="当前麦克风"
                 VerticalAlignment="Center" />
             <TextBlock
-                Grid.Row="6"
+                Grid.Row="8"
                 Grid.Column="1"
                 Text="{Binding CurrentDeviceName}"
                 VerticalAlignment="Center" />
 
             <TextBlock
-                Grid.Row="7"
+                Grid.Row="9"
                 Grid.Column="0"
                 Text="上屏方式"
                 VerticalAlignment="Center" />
@@ -129,7 +157,7 @@
             SelectedItem 绑的是 string 属性，拿控件对象当选项则永不相等——
             进来时框里空白，出去时把 "Avalonia.Controls.ComboBoxItem" 写回属性。 -->
             <ComboBox
-                Grid.Row="7"
+                Grid.Row="9"
                 Grid.Column="1"
                 x:Name="OutputModeBox"
                 ItemsSource="{Binding OutputModes}"
@@ -137,12 +165,12 @@
                 HorizontalAlignment="Stretch" />
 
             <TextBlock
-                Grid.Row="8"
+                Grid.Row="10"
                 Grid.Column="0"
                 Text="末尾标点最多清理（字符）"
                 VerticalAlignment="Center" />
             <NumericUpDown
-                Grid.Row="8"
+                Grid.Row="10"
                 Grid.Column="1"
                 Value="{Binding TrimPunctuationMaxChars}"
                 Minimum="0"
@@ -151,12 +179,12 @@
                 FormatString="0" />
 
             <TextBlock
-                Grid.Row="9"
+                Grid.Row="11"
                 Grid.Column="0"
                 Text="日志级别"
                 VerticalAlignment="Center" />
             <ComboBox
-                Grid.Row="9"
+                Grid.Row="11"
                 Grid.Column="1"
                 x:Name="LogLevelBox"
                 ItemsSource="{Binding LogLevels}"
@@ -164,19 +192,19 @@
                 HorizontalAlignment="Stretch" />
 
             <CheckBox
-                Grid.Row="10"
+                Grid.Row="12"
                 Grid.Column="1"
                 Content="上屏后恢复剪贴板原内容"
                 IsChecked="{Binding RestoreClipboard}" />
 
             <CheckBox
-                Grid.Row="11"
+                Grid.Row="13"
                 Grid.Column="1"
                 Content="清理句末标点"
                 IsChecked="{Binding TrimTrailingPunctuation}" />
 
             <CheckBox
-                Grid.Row="12"
+                Grid.Row="14"
                 Grid.Column="1"
                 Content="中文数字转阿拉伯数字"
                 IsChecked="{Binding ChineseNumberItn}" />
@@ -185,7 +213,7 @@
             ——与上面那句「这一档能录多久」同一个理由：不说的话，用户在默认档上勾来勾去
             看不出任何差别，只会以为是坏的。 -->
             <TextBlock
-                Grid.Row="13"
+                Grid.Row="15"
                 Grid.Column="1"
                 Text="默认档的数字转换由模型自带，此开关不影响它"
                 FontSize="11"
@@ -193,7 +221,7 @@
                 TextWrapping="Wrap" />
 
             <CheckBox
-                Grid.Row="14"
+                Grid.Row="16"
                 Grid.Column="1"
                 Content="开机自启"
                 IsChecked="{Binding AutoStart}" />

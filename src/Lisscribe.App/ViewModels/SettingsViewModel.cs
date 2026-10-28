@@ -97,6 +97,10 @@ public sealed partial class SettingsViewModel(
     [ObservableProperty]
     private bool _chineseNumberItn;
 
+    /// <summary>转写结果的保存目录。空串表示程序目录下的 <c>transcripts\</c>。</summary>
+    [ObservableProperty]
+    private string _transcriptDir = string.Empty;
+
     [ObservableProperty]
     private bool _autoStart;
 
@@ -148,6 +152,9 @@ public sealed partial class SettingsViewModel(
             TrimTrailingPunctuation = _config.Output.TrimTrailingPunctuation;
             TrimPunctuationMaxChars = _config.Output.TrimPunctuationMaxChars;
             ChineseNumberItn = _config.Output.ChineseNumberItn;
+
+            // 配置有校验错误时规范化器原样返回，Transcription 可能是 null，故须兜底。
+            TranscriptDir = _config.Transcription?.OutputDir ?? string.Empty;
             AutoStart = autoStart.IsEnabled;
             LogLevel = _config.App.LogLevel;
             CurrentDeviceName = deviceNameProvider();
@@ -210,6 +217,9 @@ public sealed partial class SettingsViewModel(
                 OutputMode, RestoreClipboard, TrimTrailingPunctuation, TrimPunctuationMaxChars,
                 ChineseNumberItn),
             App = new AppSection(AutoStart, LogLevel),
+
+            // 目录存不存在、能不能写，转写开始时才查，保存不拦。
+            Transcription = new TranscriptionSection(TranscriptDir.Trim()),
         };
 
         var result = ConfigValidator.Validate(candidate);
