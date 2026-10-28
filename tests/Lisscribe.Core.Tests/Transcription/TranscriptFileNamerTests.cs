@@ -28,21 +28,16 @@ public sealed class TranscriptFileNamerTests
     [Fact]
     public void ResolveDirectory_RelativePathIsExpandedAgainstBase_NotAgainstCwd()
     {
-        var original = Directory.GetCurrentDirectory();
-        var elsewhere = Path.GetTempPath();
+        // 不改进程工作目录：那是全进程共享的，并行跑的其它测试会被它撞到。测试进程的工作目录本来就不是 Base，
+        // 按工作目录展开的错误实现在这里一样会露馅。
+        Assert.NotEqual(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(Base)),
+            Path.TrimEndingDirectorySeparator(Directory.GetCurrentDirectory()),
+            StringComparer.OrdinalIgnoreCase);
 
-        try
-        {
-            Directory.SetCurrentDirectory(elsewhere);
+        var resolved = TranscriptFileNamer.ResolveDirectory(@"out\会议", Base);
 
-            var resolved = TranscriptFileNamer.ResolveDirectory(@"out\会议", Base);
-
-            Assert.Equal(Path.Combine(Base, "out", "会议"), resolved);
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(original);
-        }
+        Assert.Equal(Path.Combine(Base, "out", "会议"), resolved);
     }
 
     [Fact]
