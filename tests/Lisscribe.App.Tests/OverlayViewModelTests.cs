@@ -41,13 +41,15 @@ public sealed class OverlayViewModelTests
 
     [Theory]
     [MemberData(nameof(AllStates))]
-    public void ApplyState_MakesTheOverlayVisibleExactlyForTheThreeStatesTheSpecShows(SessionState state)
+    public void ApplyState_MakesTheOverlayVisibleExactlyForTheStatesTheSpecShows(SessionState state)
     {
         var vm = new OverlayViewModel();
 
         vm.ApplyState(state, null);
 
-        var shouldShow = state is SessionState.Recording or SessionState.Recognizing or SessionState.Failed;
+        // 转写中也得看得见：转写一跑几分钟，悬浮条是用户唯一能看到进度的地方。
+        var shouldShow = state is SessionState.Recording or SessionState.Recognizing
+            or SessionState.Transcribing or SessionState.Failed;
         Assert.Equal(shouldShow, vm.IsVisible);
     }
 
@@ -403,6 +405,67 @@ public sealed class OverlayViewModelTests
         Assert.NotEqual(BrushColorFor(SessionState.Recognizing), urgent);
         Assert.NotEqual(BrushColorFor(SessionState.Failed), urgent);
         Assert.Equal(byte.MaxValue, urgent.A);
+    }
+
+    /// <summary>
+    /// **转写进度原样上屏。** 百分比由 <c>SessionController</c> 写进 Message（「转写中 35%」），
+    /// 悬浮条不另拼一遍——两处各拼一份，格式迟早漂移。
+    /// </summary>
+    [Fact]
+    public void DisplayText_WhileTranscribing_ShowsTheProgressMessage()
+    {
+        var vm = new OverlayViewModel();
+
+        vm.ApplyState(SessionState.Transcribing, "转写中 35%");
+
+        Assert.True(vm.IsVisible);
+        Assert.Equal("转写中 35%", vm.DisplayText);
+    }
+
+    [Fact]
+    public void DisplayText_WhileTranscribing_WithoutAMessage_StillSaysWhatIsGoingOn()
+    {
+        // 断言整句而非「含转写」：套话写成「录音中」「识别中」之类就该红。
+        var vm = new OverlayViewModel();
+
+        vm.ApplyState(SessionState.Transcribing, null);
+
+        Assert.Equal("转写中", vm.DisplayText);
+    }
+
+    [Fact]
+    public void BarBrush_WhileTranscribing_TakesAColourOfItsOwn()
+    {
+        var transcribing = BrushColorFor(SessionState.Transcribing);
+
+        // 倒数那一色单独取：它挂在录音态上，BrushColorFor 量不到。
+        var countdown = new OverlayViewModel();
+        countdown.ApplyState(SessionState.Recording, null);
+        countdown.RemainingSeconds = 3;
+        var urgent = Assert.IsAssignableFrom<ISolidColorBrush>(countdown.BarBrush).Color;
+
+        // 与其它四色都得分得开。与录音同色读起来是「麦克风还开着」，与识别、倒数、失败同色则各有各的误读。
+        Assert.NotEqual(BrushColorFor(SessionState.Recording), transcribing);
+        Assert.NotEqual(BrushColorFor(SessionState.Recognizing), transcribing);
+        Assert.NotEqual(BrushColorFor(SessionState.Failed), transcribing);
+        Assert.NotEqual(urgent, transcribing);
+        Assert.Equal(byte.MaxValue, transcribing.A);
+    }
+
+    [Fact]
+    public void ThePill_WhileTranscribing_IsAsWideAsWhileRecording()
+    {
+        // 取最长的那句「100%」：胶囊要是随文字变宽，进度每跳一格整颗胶囊就抖一下。
+        var recording = new OverlayViewModel();
+        recording.ApplyState(SessionState.Recording, null);
+
+        var transcribing = new OverlayViewModel();
+        transcribing.ApplyState(SessionState.Transcribing, "转写中 100%");
+
+        // 阳性对照：录音态是个定数。两边都是 NaN（自适应）时下面那句相等照样成立。
+        Assert.False(double.IsNaN(recording.PillWidthDip), "录音态的胶囊宽度不是定数");
+
+        Assert.Equal(recording.PillWidthDip, transcribing.PillWidthDip);
     }
 
     private static Color BrushColorFor(SessionState state)

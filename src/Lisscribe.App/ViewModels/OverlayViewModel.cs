@@ -6,7 +6,7 @@ using Lisscribe.Core.Session;
 namespace Lisscribe.App.ViewModels;
 
 /// <summary>
-/// 悬浮条三态：录音中绿色音量条、识别中黄色不确定进度、失败红色。
+/// 悬浮条四态：录音中绿色音量条、识别中黄色不确定进度、转写中蓝色进度文字、失败红色。
 /// </summary>
 /// <remarks>
 /// 本类没有线程亲和性，也刻意不去获取 Dispatcher——但这不等于随便哪条线程都能写它，
@@ -28,9 +28,10 @@ public sealed partial class OverlayViewModel : ObservableObject
     public const double BarMaxHeightDip = 14d;
 
     /// <summary>
-    /// 平时那颗胶囊的宽（DIP）。录音中与识别中必须一模一样大。
+    /// 平时那颗胶囊的宽（DIP）。录音中、识别中、转写中必须一模一样大。
     /// 写死一个宽度，不靠「两边内容碰巧一样宽」：文字实测两态差 2 DIP（汉字并非等宽，
-    /// 字体回退一变就再差一点）。现在由构造保证：这一个数管住两态，余量落进中间那一列。
+    /// 字体回退一变就再差一点）。现在由构造保证：这一个数管住这几态，余量落进中间那一列。
+    /// 转写态最长那句「转写中 100%」按 12 号字估约 71 DIP，而那一态右侧不显示指示器，文字列有 84 DIP。
     /// </summary>
     public const double NormalPillWidthDip = 132d;
 
@@ -116,6 +117,9 @@ public sealed partial class OverlayViewModel : ObservableObject
             // 「识别中」不带省略号：与「录音中」同为三个汉字，加一个省略号就多一个字符的宽度。
             SessionState.Recording => "录音中",
             SessionState.Recognizing => "识别中",
+
+            // 百分比由状态机写在 Message 里，这句只在它缺席时兜底。
+            SessionState.Transcribing => "转写中",
             SessionState.Failed => "识别失败",
             _ => string.Empty,
         };
@@ -128,9 +132,14 @@ public sealed partial class OverlayViewModel : ObservableObject
     public bool IsCountingDown => State == SessionState.Recording && RemainingSeconds is not null;
 
     /// <summary>
-    /// 三色。挑的是「绿 / 黄 / 红」这件事，具体色号可换。
-    /// 倒数时用第四色（深橙）：它不是第四个状态，是录音态的子态；挑色的唯一约束是与另外三色都
+    /// 四色。挑的是「绿 / 黄 / 蓝 / 红」这件事，具体色号可换。
+    /// 倒数时用第五色（深橙）：它不是又一个状态，是录音态的子态；挑色的唯一约束是与另外几色都
     /// 分得开——与识别态的金色撞色的话，余光扫过去像是「已经在识别了，可以松手」。
+    /// <para>
+    /// 转写用蓝：绿的意思是「麦克风开着」，而转写不碰麦克风；冷色离金、深橙、橙红那一簇暖色最远，
+    /// 读起来是「后台在干活」而不是报警，红绿色弱也分得开蓝与另外几色。
+    /// DodgerBlue 在胶囊的 #1E1E1E 底上对比度约 5:1，8 DIP 的状态点看得清。
+    /// </para>
     /// </summary>
     public IBrush BarBrush => IsCountingDown
         ? Brushes.DarkOrange
@@ -138,16 +147,18 @@ public sealed partial class OverlayViewModel : ObservableObject
     {
         SessionState.Recording => Brushes.LimeGreen,
         SessionState.Recognizing => Brushes.Gold,
+        SessionState.Transcribing => Brushes.DodgerBlue,
         SessionState.Failed => Brushes.OrangeRed,
         _ => Brushes.Transparent,
     };
 
     public bool IsVolumeVisible => State == SessionState.Recording;
 
+    /// <summary>只在识别中显示。转写中不显示：进度已写在文字里，再挂一条不确定进度就是两样东西说同一件事。</summary>
     public bool IsIndeterminate => State == SessionState.Recognizing;
 
     /// <summary>
-    /// Idle 与 Paused 时隐藏；其余三态显示。必须在 UI 线程上调。
+    /// Idle 与 Paused 时隐藏；其余四态显示。必须在 UI 线程上调。
     /// </summary>
     /// <remarks>
     /// 不守这条的后果，只有一条在两种接线下都成立：每一轮会话的收尾都抛。
@@ -174,7 +185,8 @@ public sealed partial class OverlayViewModel : ObservableObject
     {
         State = state;
         Message = message ?? string.Empty;
-        IsVisible = state is SessionState.Recording or SessionState.Recognizing or SessionState.Failed;
+        IsVisible = state is SessionState.Recording or SessionState.Recognizing
+            or SessionState.Transcribing or SessionState.Failed;
 
         // 不清零的话，最后一格音量会冻在识别中那条黄条上，看起来像录音没停。
         if (state != SessionState.Recording)

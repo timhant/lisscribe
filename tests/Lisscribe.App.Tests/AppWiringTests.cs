@@ -78,6 +78,9 @@ public sealed class AppWiringTests : IAsyncDisposable
         _controller.Start(new HotkeyCombination(ModifierKeys.Ctrl | ModifierKeys.Alt, "Space"));
     }
 
+    /// <summary>转写中途最可能弹出的那类通知：关配置窗时热键重装失败。</summary>
+    private const string HotkeyReinstallFailed = "热键重装失败：Ctrl+Alt+Space 已被别的程序占用";
+
     private static TimeSpan NoticeDuration => SessionOptions.CreateDefault().FailedDisplayDuration;
 
     public async ValueTask DisposeAsync() => await _controller.ShutdownAsync(TimeSpan.FromSeconds(2));
@@ -320,6 +323,130 @@ public sealed class AppWiringTests : IAsyncDisposable
 
         Assert.Equal(postsBefore, _poster.PostCount);
         Assert.Equal(SessionState.Failed, _overlay.State);
+    }
+
+    /// <summary>
+    /// **转写中弹的通知，到点后要回到转写进度，不能回到空闲。** 转写一跑几分钟，期间任何一条通知
+    /// （例如关配置窗时热键重装失败）过几秒就把悬浮条整个藏掉的话，转写还在跑，进度从此看不见。
+    ///
+    /// <para>
+    /// <b>两条进度必须是不同的百分比</b>，且断言的是最后那条：只记「应用过的」状态时，被通知压住的两条
+    /// 都没记下，到点回放的是通知之前那条「0%」；只来一条进度的话，「记第一条」与「记最后一条」分不开。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ANoticeDuringTranscription_HoldsOffTheProgress_ThenHandsBackTheLatestOne()
+    {
+        _wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        // 阳性对照：通知弹出之前，悬浮条真在显示转写。
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+
+        _wiring.ShowNotice(HotkeyReinstallFailed);
+        _poster.Drain();
+
+        _controller.ReportTranscriptionProgress(35);
+        _controller.ReportTranscriptionProgress(70);
+        _poster.Drain();
+
+        // 进度每识别完一段就可能来一条，照旧上屏的话，通知一闪就没了。
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal(HotkeyReinstallFailed, _overlay.Message);
+
+        _time.Advance(NoticeDuration);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 70%", _overlay.Message);
+        Assert.True(_overlay.IsVisible);
+    }
+
+    /// <summary>
+    /// 压住的只有进度。状态机自己的失败（例如转写失败）是用户此刻更该看见的事，照旧当场顶掉通知。
+    /// 到此为止、不推时间：状态机自己那个失败计时器与通知同长，一推它也回静止态，要验的东西就没了。
+    /// </summary>
+    [Fact]
+    public void AFailureFromTheController_DuringTranscription_DisplacesTheNoticeAtOnce()
+    {
+        _wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        _wiring.ShowNotice(HotkeyReinstallFailed);
+        _poster.Drain();
+
+        _controller.EndTranscription("识别失败：引擎返回错误");
+        _poster.Drain();
+
+        // 两条都是 Failed，分得开它们的只有文案。
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal("识别失败：引擎返回错误", _overlay.Message);
+    }
+
+    /// <summary>
+    /// 转写在通知显示期间正常结束：Idle 当场生效，悬浮条隐去；通知那个计时器到点后不许再把任何东西翻出来。
+    /// </summary>
+    [Fact]
+    public void TranscriptionEndingDuringTheNotice_HidesTheOverlayAtOnce_AndTheTimerLeavesItAlone()
+    {
+        _wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        _wiring.ShowNotice(HotkeyReinstallFailed);
+        _poster.Drain();
+
+        _controller.EndTranscription(failure: null);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Idle, _overlay.State);
+        Assert.False(_overlay.IsVisible);
+
+        _time.Advance(NoticeDuration);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Idle, _overlay.State);
+        Assert.False(_overlay.IsVisible);
+        Assert.Equal(string.Empty, _overlay.Message);
+    }
+
+    /// <summary>
+    /// **状态机自己的红条不是通知。** 转写失败、红条还亮着，用户马上又挑了一个文件：新一轮的进度必须当场上屏。
+    /// 「通知正在显示」的判据若只看 Failed、不比文案，这里的进度就被当成「通知期间」压住，而状态机的失败
+    /// 计时器已被新一轮转写掐掉、也没有通知计时器来放行，红条一直挂到转写结束。
+    ///
+    /// <para>
+    /// 先弹过一条通知是有意的：它让「最后一次通知的文案」有值，「有过通知就压」那种写法也一并在这里红。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheControllersOwnRedBar_IsNotMistakenForANotice_WhenTheNextTranscriptionStarts()
+    {
+        _wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        _wiring.ShowNotice(HotkeyReinstallFailed);
+        _poster.Drain();
+
+        _controller.EndTranscription("识别失败：引擎返回错误");
+        _poster.Drain();
+
+        // 阳性对照：此刻屏上是状态机的红条，不是那条通知。
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal("识别失败：引擎返回错误", _overlay.Message);
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 0%", _overlay.Message);
     }
 
     private async Task WaitForControllerAsync(SessionState expected, int timeoutMs = 3000)

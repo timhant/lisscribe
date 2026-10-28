@@ -42,6 +42,15 @@ public sealed class AppWiring : IDisposable
 
     private bool _disposed;
 
+    /// <summary>
+    /// 状态机最近一次报来的状态，被通知压住的那条也记。通知到点后回到它。
+    /// 只在 UI 线程上读写，与所有写悬浮条的活儿同一条线程，故不进 <see cref="_noticeGate"/>。
+    /// </summary>
+    private (SessionState State, string? Message) _lastStatus = (SessionState.Idle, null);
+
+    /// <summary>最近一次 <see cref="ShowNotice"/> 上屏的文案。只在 UI 线程上读写，理由同上。</summary>
+    private string? _lastNotice;
+
     /// <param name="postToUi">
     /// 把一段活儿投到 UI 线程上，不等它跑完。生产是 <c>Dispatcher.UIThread.Post</c>。
     /// </param>
@@ -120,13 +129,23 @@ public sealed class AppWiring : IDisposable
     /// 自动隐藏必须在这里自己做：这条路绕开状态机，也就绕开了 <c>EnterFailed</c> 里那个失败提示
     /// 计时器；少了这一段，启动时模型没下好就等于「开机以后右下角永远糊着一块红」，直到用户碰巧
     /// 按一次热键把它顶掉。
-    /// 到点了才判该不该隐藏，且照那一刻的实际状态判：判据是「悬浮条还在显示我这条」——期间用户
+    /// 到点了才判该不该收场，且照那一刻的实际状态判：判据是「悬浮条还在显示我这条」——期间用户
     /// 按热键开了录音，或者又来了别的提示，都不该被这条迟到的计时器打回去。判断跑在投递之后的
     /// 闭包里，也就是跑在 UI 线程上，与所有其它写悬浮条的活儿同一条线程，故不需要再为读状态加锁。
+    /// <para>
+    /// 收场回到状态机最近一次报来的状态，不一律回 Idle：转写一跑几分钟，期间弹的通知（例如关配置窗时
+    /// 热键重装失败）若到点回 Idle，悬浮条就此隐去，而转写还在跑，进度从此看不见。通知期间被压住的
+    /// 进度也记着，故回到的是最新那条百分比。还没收到过任何状态时那一对是 (Idle, null)，与从前一样隐去。
+    /// </para>
     /// </remarks>
     public void ShowNotice(string message)
     {
-        _postToUi(() => _overlay.ApplyState(SessionState.Failed, message));
+        _postToUi(() =>
+        {
+            _lastNotice = message;
+
+            _overlay.ApplyState(SessionState.Failed, message);
+        });
 
         lock (_noticeGate)
         {
@@ -143,9 +162,10 @@ public sealed class AppWiring : IDisposable
             _noticeTimer = _time.CreateTimer(
                 _ => _postToUi(() =>
                 {
-                    if (_overlay.State == SessionState.Failed && _overlay.Message == message)
+                    // 比的是本条的文案而不是 _lastNotice：已投递出去的上一条计时器若晚到，不许把新通知当成自己的收场。
+                    if (IsShowingNotice(message))
                     {
-                        _overlay.ApplyState(SessionState.Idle, null);
+                        _overlay.ApplyState(_lastStatus.State, _lastStatus.Message);
                     }
                 }),
                 state: null,
@@ -154,8 +174,31 @@ public sealed class AppWiring : IDisposable
         }
     }
 
+    /// <summary>
+    /// 悬浮条此刻显示的是不是这条通知。只在 UI 线程上调。
+    /// 文案那半少不得：只看 Failed 的话，状态机自己的红条（例如转写失败）也被当成通知，其后的进度就被压住。
+    /// </summary>
+    private bool IsShowingNotice(string? notice) =>
+        _overlay.State == SessionState.Failed && _overlay.Message == notice;
+
+    /// <summary>
+    /// 状态机的每一次迁移都先记下，再决定上不上屏。只压住「转写中」：进度每识别完一段就可能来一条
+    /// （SenseVoice 一段不到半秒），照旧上屏的话通知一闪就没了。其余迁移照旧顶掉通知——开始录音、
+    /// 状态机自己的失败、转写结束，都是用户此刻更该看见的事。
+    /// </summary>
     private void OnStatusChanged(object? sender, SessionStatusEventArgs e) =>
-        _postToUi(() => _overlay.ApplyState(e.State, e.Message));
+        _postToUi(() =>
+        {
+            // 先记后判：被压住的那条也得记下，通知到点后回到的正是它。
+            _lastStatus = (e.State, e.Message);
+
+            if (e.State == SessionState.Transcribing && IsShowingNotice(_lastNotice))
+            {
+                return;
+            }
+
+            _overlay.ApplyState(e.State, e.Message);
+        });
 
     private void OnVolumeChanged(object? sender, float volume) =>
         _postToUi(() => _overlay.Volume = volume);
