@@ -13,6 +13,9 @@ namespace Lisscribe.Core.Session;
 /// </summary>
 public sealed class SessionController : IAsyncDisposable
 {
+    /// <summary>钩子失效的提示。当场报与转写落地后补报共用这一句，两处各写一份迟早漂移。</summary>
+    private const string HookLostMessage = "热键钩子已失效，请重启程序";
+
     private readonly IHotkeyHook _hook;
     private readonly IAudioCapture _capture;
     private readonly IAsrEngine _engine;
@@ -49,7 +52,7 @@ public sealed class SessionController : IAsyncDisposable
     private int? _lastCountdownSecond;
 
     /// <summary>
-    /// 暂停已被请求，但当前会话尚未落地（还在 Recording / Recognizing / Failed 展示中）。
+    /// 暂停已被请求，但当前会话尚未落地（还在 Recording / Recognizing / Transcribing / Failed 展示中）。
     /// 落地时静止态就是 Paused 而不是 Idle——见 <see cref="EnterRest"/>。识别是异步的，
     /// 若不把这个意图带过去，用户点了「暂停」，几百毫秒后热键又活了过来。
     /// </summary>
@@ -62,6 +65,9 @@ public sealed class SessionController : IAsyncDisposable
     /// 故告知只能挂在会话上、由每次迁移在自己无话可说时沿用。
     /// </summary>
     private string? _sessionNotice;
+
+    /// <summary>转写中钩子被系统摘除。状态不能离开 Transcribing，提示留到转写落地时再报。</summary>
+    private bool _hookLostWhileTranscribing;
 
     public SessionController(
         IHotkeyHook hook,
@@ -92,7 +98,7 @@ public sealed class SessionController : IAsyncDisposable
 
     /// <summary>
     /// 本事件在多条非 UI 线程上引发（识别工作线程、热键线程、看门狗计时器线程、
-    /// 会话监听线程、设备变更的线程池线程），而 UI 侧订阅者必须 <c>Dispatcher.UIThread.Post</c>。
+    /// 会话监听线程、设备变更的线程池线程、转写报进度的线程），而 UI 侧订阅者必须 <c>Dispatcher.UIThread.Post</c>。
     /// </summary>
     /// <remarks>
     /// 这条不是「最好这样」，是「不这样每一轮会话的收尾都会抛」：
@@ -141,7 +147,7 @@ public sealed class SessionController : IAsyncDisposable
 
     /// <summary>
     /// 暂停热键。若正在录音，先按正常流程结束当前会话再进 Paused——不丢已录音频；
-    /// 若识别在途，等它上屏完再进 Paused，绝不半路掐断一次已经说出口的话。
+    /// 若识别在途，等它上屏完再进 Paused，绝不半路掐断一次已经说出口的话。转写在途同理。
     /// 暂停期间模型保持常驻，不卸载。
     /// </summary>
     public void Pause()
@@ -171,9 +177,9 @@ public sealed class SessionController : IAsyncDisposable
                 return;
             }
 
-            if (State == SessionState.Recognizing)
+            if (State is SessionState.Recognizing or SessionState.Transcribing)
             {
-                // 在途识别自己会走到终态，那时 EnterRest 把它落到 Paused。
+                // 在途识别或转写自己会走到终态，那时 EnterRest 把它落到 Paused。
                 _sessionNotice = "已暂停热键";
 
                 return;
@@ -210,6 +216,114 @@ public sealed class SessionController : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// 申请开始一次音频文件转写。转写与热键听写互斥，由本状态机裁决，界面层不各自判断。
+    /// 拒绝时 <paramref name="refusal"/> 是给用户看的原因，状态不动。
+    /// </summary>
+    public bool TryBeginTranscription(out string? refusal)
+    {
+        lock (_gate)
+        {
+            refusal = RefuseTranscription();
+
+            if (refusal is not null)
+            {
+                _logger.LogInformation("不开始转写：{Reason}", refusal);
+
+                return false;
+            }
+
+            // Failed 展示中开始：掐掉失败提示计时器，与按热键打断红条同一做法。
+            CancelFailedTimer();
+
+            // 暂停中开始：转完回到 Paused，沿用暂停请求跨异步落地的那套机制。
+            if (State == SessionState.Paused)
+            {
+                _pauseRequested = true;
+            }
+
+            // 转写是新的一段占用，上一轮会话的告知不许带到它的终态上。
+            _sessionNotice = null;
+
+            SetState(SessionState.Transcribing, "转写中 0%");
+
+            return true;
+        }
+    }
+
+    /// <summary>调用方须已持有 _gate。不能开始转写的原因，能开始时返回 null。</summary>
+    private string? RefuseTranscription()
+    {
+        if (!_acceptingWork)
+        {
+            return "程序正在退出";
+        }
+
+        if (!_engine.IsLoaded)
+        {
+            return "识别引擎未就绪";
+        }
+
+        if (State is SessionState.Recording or SessionState.Recognizing)
+        {
+            return "正在听写，请稍后再试";
+        }
+
+        if (State == SessionState.Transcribing)
+        {
+            return "已有转写在进行";
+        }
+
+        return null;
+    }
+
+    /// <summary>报告转写进度。只在转写中生效，迟到的一条不许把别的状态改成「转写中」。</summary>
+    public void ReportTranscriptionProgress(int percent)
+    {
+        lock (_gate)
+        {
+            if (!_acceptingWork || State != SessionState.Transcribing)
+            {
+                return;
+            }
+
+            SetState(SessionState.Transcribing, $"转写中 {percent}%");
+        }
+    }
+
+    /// <summary>
+    /// 转写落地。<paramref name="failure"/> 为 null 即成功，回静止态；否则亮红条，到点再回静止态。
+    /// 只在转写中生效：已取消的那次迟到的结局不许踩掉此刻的录音或红条。
+    /// </summary>
+    public void EndTranscription(string? failure)
+    {
+        lock (_gate)
+        {
+            // 关停后也不受理：那时再起的失败计时器已无人掐。
+            if (!_acceptingWork || State != SessionState.Transcribing)
+            {
+                return;
+            }
+
+            // 转写中被摘除的钩子在这里补报，与转写自己的失败并列，谁也不吞掉谁。
+            if (_hookLostWhileTranscribing)
+            {
+                _hookLostWhileTranscribing = false;
+
+                failure = failure is null ? HookLostMessage : $"{failure}，{HookLostMessage}";
+            }
+
+            if (failure is not null)
+            {
+                EnterFailed(failure);
+
+                return;
+            }
+
+            EnterRest(null);
+        }
+    }
+
     private void OnPressed(object? sender, EventArgs e)
     {
         lock (_gate)
@@ -226,6 +340,15 @@ public sealed class SessionController : IAsyncDisposable
                 // 与 OnReleased 那道 `if (State != Recording) return;` 对称的守卫。生产环境里
                 // HotkeyMatcher 会滤掉 OS 自动重复，这里没有那层上游保证——没有中间 Released
                 // 的第二次 Pressed 会把已经说出口的音频通过下面的 _buffer.Clear() 直接清空。
+                return;
+            }
+
+            // 转写与热键听写互斥：不开录，也不改状态，悬浮条照旧显示进度。
+            // 排在引擎检查之前，免得任何一条路把 Transcribing 改成 Failed。
+            if (State == SessionState.Transcribing)
+            {
+                _logger.LogInformation("正在转写音频文件，本次热键不开始录音");
+
                 return;
             }
 
@@ -559,6 +682,15 @@ public sealed class SessionController : IAsyncDisposable
 
                 _logger.LogError("键盘钩子已被系统摘除（回调超时），热键失效");
 
+                // 转写只认 EndTranscription 收尾：这里改状态会让转写还在跑却显示静止，还能再开一次。
+                // 提示不能丢，记下来等转写落地时补报。
+                if (State == SessionState.Transcribing)
+                {
+                    _hookLostWhileTranscribing = true;
+
+                    return;
+                }
+
                 if (State == SessionState.Recording)
                 {
                     StopCaptureSafely();
@@ -570,7 +702,7 @@ public sealed class SessionController : IAsyncDisposable
                 // 全局故障，不是某一路陈旧识别的结局，此后热键彻底不工作，必须无条件告诉用户。
                 _sessionNotice = null;
 
-                EnterFailed("热键钩子已失效，请重启程序");
+                EnterFailed(HookLostMessage);
             }
         }
         catch (Exception ex)

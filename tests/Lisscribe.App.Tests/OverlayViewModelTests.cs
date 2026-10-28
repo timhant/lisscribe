@@ -36,7 +36,7 @@ public sealed class OverlayViewModelTests
     public void AllStates_CoversEveryValueOfTheEnum()
     {
         // 阴性对照：上面那个反射取样口若哪天被人改成手抄清单，这条会立刻发现。
-        Assert.Equal(5, Enum.GetValues<SessionState>().Length);
+        Assert.Equal(6, Enum.GetValues<SessionState>().Length);
     }
 
     [Theory]
