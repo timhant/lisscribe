@@ -24,6 +24,13 @@ namespace Lisscribe.App.Composition;
 /// </summary>
 public sealed class AppServices : IAsyncDisposable
 {
+    /// <summary>
+    /// 退出与重启时等转写收尾的上限。取消最多等当前一段识别完，Qwen3 一段 20 秒音频在本机约 4 秒，留一倍余量。
+    /// 退出总共至多 10 秒等转写加 10 秒等状态机的识别工作线程，仍在后继进程等本进程退出的 30 秒之内
+    /// （Program.RestartWaitTimeout）。
+    /// </summary>
+    private static readonly TimeSpan TranscriptionStopTimeout = TimeSpan.FromSeconds(10);
+
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILogger<AppServices> _logger;
@@ -270,9 +277,9 @@ public sealed class AppServices : IAsyncDisposable
 
         _tray.Detach();
 
-        // 转写必须先停：ShutdownAsync 会 Dispose 引擎，而转写正用着它，原生句柄被释放时还在解码就是进程级崩溃。
-        // 取消最多等当前这一段识别完（Qwen3 一段约 4s）。本方法在 UI 线程上被同步等着，故协调器的收尾不回 UI 线程。
-        await _transcription.CancelAndWaitAsync().ConfigureAwait(false);
+        // 转写必须先停：ShutdownAsync 会 Dispose 引擎，而转写正用着它。本方法在 UI 线程上被同步等着，
+        // 故协调器的收尾不回 UI 线程。等不到也照常往下关停，为什么安全见 CancelAndWaitAsync 的注释。
+        await _transcription.CancelAndWaitAsync(TranscriptionStopTimeout).ConfigureAwait(false);
 
         try
         {
@@ -467,7 +474,8 @@ public sealed class AppServices : IAsyncDisposable
     {
         try
         {
-            await _transcription.CancelAndWaitAsync().ConfigureAwait(false);
+            // 等不到也照样重启：这一段在拉起后继进程之前，不占后继进程那 30 秒。
+            await _transcription.CancelAndWaitAsync(TranscriptionStopTimeout).ConfigureAwait(false);
 
             Dispatcher.UIThread.Post(() =>
             {

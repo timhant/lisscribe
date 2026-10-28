@@ -34,6 +34,9 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
     /// <summary>等异步那一步的上限。被测代码坏了时让测试红在这里，而不是整个测试进程挂死。</summary>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(5);
 
+    /// <summary>传给 CancelAndWaitAsync 的上限，与生产同值。由假时钟推，不真等。</summary>
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+
     private readonly FakeHotkeyHook _hook = new();
 
     private readonly FakeAudioCapture _capture = new();
@@ -447,9 +450,56 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
     }
 
     [Fact]
-    public void CancelAndWait_WithNothingInFlight_CompletesAtOnce()
+    public async Task CancelAndWait_WithNothingInFlight_CompletesAtOnce_AndReportsAWindDown()
     {
-        Assert.True(NewCoordinator().CancelAndWaitAsync().IsCompletedSuccessfully);
+        var wait = NewCoordinator().CancelAndWaitAsync(StopTimeout);
+
+        Assert.True(wait.IsCompletedSuccessfully);
+        Assert.True(await wait);
+    }
+
+    /// <summary>
+    /// 退出不能被一次卡死的转写无限拖住：那时托盘已摘、单实例互斥体还攥着，用户既看不见程序也开不了新的。
+    /// 转写器卡在一段里、不理会令牌（例如读网络盘上的文件卡住），到点就放弃等待、报 false、记一条警告。
+    /// 时间用假时钟推，差 1ms 不到点那一格钉住「上限真是传进来的那个值」。
+    /// </summary>
+    [Fact]
+    public async Task CancelAndWait_WhenTheTranscriberIgnoresTheCancellation_GivesUpAtTheTimeout_AndSaysSo()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _transcribe = async (_, output, _, ct) =>
+        {
+            entered.SetResult();
+
+            // 卡住，且这期间不看令牌。
+            await release.Task;
+            ct.ThrowIfCancellationRequested();
+
+            return TranscriptionOutcome.Success(output);
+        };
+
+        var coordinator = NewCoordinator();
+        var run = coordinator.ToggleAsync();
+        await entered.Task.WaitAsync(Patience, TestContext.Current.CancellationToken);
+
+        var wait = coordinator.CancelAndWaitAsync(StopTimeout);
+
+        _time.Advance(StopTimeout - TimeSpan.FromMilliseconds(1));
+        Assert.False(wait.IsCompleted);
+
+        _time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.False(await wait.WaitAsync(Patience, TestContext.Current.CancellationToken));
+
+        Assert.Single(_logger.Entries, e => e.Level == LogLevel.Warning);
+
+        // 阳性对照：收尾确实还没做，返回 false 不是因为它其实已经停了。
+        Assert.Equal(SessionState.Transcribing, _controller.State);
+        Assert.False(run.IsCompleted);
+
+        release.SetResult();
+        await run.WaitAsync(Patience, TestContext.Current.CancellationToken);
     }
 
     /// <summary>
@@ -481,7 +531,8 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
         var run = coordinator.ToggleAsync();
         await entered.Task.WaitAsync(Patience, TestContext.Current.CancellationToken);
 
-        await coordinator.CancelAndWaitAsync().WaitAsync(Patience, TestContext.Current.CancellationToken);
+        Assert.True(await coordinator.CancelAndWaitAsync(StopTimeout)
+            .WaitAsync(Patience, TestContext.Current.CancellationToken));
 
         // 收尾已全部做完。
         Assert.True(run.IsCompleted);
@@ -505,7 +556,10 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
         var coordinator = NewCoordinator();
         var run = coordinator.ToggleAsync();
 
-        Assert.True(coordinator.CancelAndWaitAsync().IsCompleted);
+        var wait = coordinator.CancelAndWaitAsync(StopTimeout);
+
+        Assert.True(wait.IsCompleted);
+        Assert.True(await wait);
 
         picked.SetResult(_source);
         await run.WaitAsync(Patience, TestContext.Current.CancellationToken);

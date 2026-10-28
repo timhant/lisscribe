@@ -120,10 +120,15 @@ public sealed class TranscriptionCoordinator
     }
 
     /// <summary>
-    /// 取消在途转写并等它整段收尾，供退出与重启用：之后才轮得到释放引擎。没有在途转写时立即完成。
-    /// 选文件对话框还开着时不等用户关它，立即完成，对话框晚些关上也不再开始转写。
+    /// 取消在途转写并等它整段收尾，最多等 <paramref name="timeout"/>。供退出与重启用：之后才轮得到释放引擎。
+    /// 收尾完、或本来就没有在途转写时返回 true，到点仍没收尾返回 false。
+    /// 选文件对话框还开着时不等用户关它，立即返回 true，对话框晚些关上也不再开始转写。
     /// </summary>
-    public Task CancelAndWaitAsync()
+    /// <remarks>
+    /// 超时后调用方照常释放引擎是安全的：引擎的 DisposeAsync 先等原生闸门再释放句柄，不会在解码途中抽走它。
+    /// 转写线程此后再识别会拿到 ObjectDisposedException，按识别失败收尾，而关停后的状态机不再受理 EndTranscription。
+    /// </remarks>
+    public async Task<bool> CancelAndWaitAsync(TimeSpan timeout)
     {
         Run? run;
         bool begun;
@@ -134,7 +139,7 @@ public sealed class TranscriptionCoordinator
 
             if (run is null)
             {
-                return Task.CompletedTask;
+                return true;
             }
 
             begun = run.Begun;
@@ -152,12 +157,25 @@ public sealed class TranscriptionCoordinator
         {
             _logger.LogInformation("退出时选择文件对话框还开着，选中的文件不再转写");
 
-            return Task.CompletedTask;
+            return true;
         }
 
         _logger.LogInformation("取消在途转写，等它收尾");
 
-        return run.Finished.Task;
+        try
+        {
+            // 用注入的时钟计时：测试推假时钟，不真等。
+            await run.Finished.Task.WaitAsync(timeout, _time).ConfigureAwait(false);
+
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            // 例如解码器读网络盘上的文件卡住：取消只在两段之间检查，令牌救不了它。
+            _logger.LogWarning("在途转写 {Timeout} 内没有收尾，不再等它，继续往下关停", timeout);
+
+            return false;
+        }
     }
 
     /// <summary>一次点击的整段：选文件、申请、转写。任何异常都在这里收住，托盘回调与退出路径都不许被它带走。</summary>
