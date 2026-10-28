@@ -64,6 +64,100 @@ public sealed class FakesSelfTest
     }
 
     [Fact]
+    public async Task FakeAsrEngine_ScriptsByCallNumber_AndRecordsCopiesOfTheSamples()
+    {
+        var engine = new FakeAsrEngine { RecordSamples = true, Script = n => $"第{n}次" };
+        var buffer = new float[] { 1, 2, 3 };
+
+        var first = await engine.RecognizeAsync(buffer, CancellationToken.None);
+
+        // 调用方复用缓冲，记下的必须是当时的副本。
+        buffer[1] = 9;
+
+        var second = await engine.RecognizeAsync(buffer.AsMemory(1, 2), CancellationToken.None);
+
+        Assert.Equal("第1次", first);
+        Assert.Equal("第2次", second);
+        Assert.Equal([1f, 2f, 3f], engine.ReceivedSamples[0]);
+        Assert.Equal([9f, 3f], engine.ReceivedSamples[1]);
+    }
+
+    [Fact]
+    public async Task FakeAsrEngine_IgnoreCancellation_ReturnsDespiteACancelledToken()
+    {
+        var cancelled = new CancellationToken(canceled: true);
+
+        var honouring = new FakeAsrEngine();
+        var ignoring = new FakeAsrEngine { IgnoreCancellation = true };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => honouring.RecognizeAsync(new float[1], cancelled));
+        Assert.Equal("识别结果", await ignoring.RecognizeAsync(new float[1], cancelled));
+    }
+
+    [Fact]
+    public async Task FakeAsrEngine_CompleteOnNewThread_FinishesOnAnotherThread()
+    {
+        var engine = new FakeAsrEngine { CompleteOnNewThread = true };
+        var caller = Environment.CurrentManagedThreadId;
+
+        var text = await engine.RecognizeAsync(new float[1], CancellationToken.None);
+
+        // 调用方线程此刻仍活着，新线程的编号不可能与它相同。
+        Assert.Equal("识别结果", text);
+        Assert.NotEqual(caller, Assert.Single(engine.CompletionThreadIds));
+    }
+
+    [Fact]
+    public void FakeAudioFileDecoder_ServesCappedBlocks_ThenZeroForever()
+    {
+        var decoder = new FakeAudioFileDecoder([0f, 1, 2, 3, 4, 5, 6, 7, 8, 9]) { MaxSamplesPerRead = 4 };
+        using var audio = decoder.Open("会议.m4a");
+        var buffer = new float[16];
+
+        int[] reads = [audio.Read(buffer), audio.Read(buffer), audio.Read(buffer), audio.Read(buffer), audio.Read(buffer)];
+
+        Assert.Equal([4, 4, 2, 0, 0], reads);
+        Assert.Equal([8f, 9f], buffer[..2]);
+        Assert.Equal(TimeSpan.FromMilliseconds(10 / 16.0), audio.Duration);
+        Assert.Equal("会议.m4a", decoder.OpenedPath);
+        Assert.Throws<ArgumentException>(() => audio.Read(Span<float>.Empty));
+    }
+
+    [Fact]
+    public void FakeAudioFileDecoder_ThrowsOnTheConfiguredRead_AndRecordsEveryCallsThread()
+    {
+        var boom = new InvalidOperationException("boom");
+        var decoder = new FakeAudioFileDecoder(new float[100])
+        {
+            MaxSamplesPerRead = 10, ThrowOnReadNumber = 2, ReadException = boom,
+        };
+
+        var audio = decoder.Open("x.m4a");
+        audio.Read(new float[50]);
+        var thrown = Assert.Throws<InvalidOperationException>(() => audio.Read(new float[50]));
+        audio.Dispose();
+
+        Assert.Same(boom, thrown);
+        Assert.Equal(1, decoder.DisposeCount);
+        Assert.Equal(
+            [Environment.CurrentManagedThreadId, Environment.CurrentManagedThreadId,
+             Environment.CurrentManagedThreadId, Environment.CurrentManagedThreadId],
+            decoder.ThreadIds);
+    }
+
+    [Fact]
+    public void FakeAudioFileDecoder_OpenException_IsThrownAfterOnOpenRuns()
+    {
+        var boom = new IOException("打不开");
+        var sawOpen = false;
+        var decoder = new FakeAudioFileDecoder([]) { OpenException = boom, OnOpen = () => sawOpen = true };
+
+        Assert.Same(boom, Assert.Throws<IOException>(() => decoder.Open("x.m4a")));
+        Assert.True(sawOpen);
+    }
+
+    [Fact]
     public void FakeWindowProbe_ReportsElevatedWindowsAsUninjectable()
     {
         var probe = new FakeWindowProbe { ForegroundWindow = 42 };

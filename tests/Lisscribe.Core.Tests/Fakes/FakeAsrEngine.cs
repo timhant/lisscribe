@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Lisscribe.Core.Abstractions;
 
 namespace Lisscribe.Core.Tests.Fakes;
@@ -37,8 +38,27 @@ public sealed class FakeAsrEngine : IAsrEngine
     /// </summary>
     public Task Parked => _parked.Task;
 
+    /// <summary>置非 null 则按调用序号（从 1 起）取返回值，代替 <see cref="NextResult"/>；可在其中抛异常或触发取消。</summary>
+    public Func<int, string>? Script { get; set; }
+
+    /// <summary>置真则记下每次收到的样本副本。调用方的缓冲会被复用，只存引用的话断言时早已被覆盖。</summary>
+    public bool RecordSamples { get; set; }
+
+    /// <summary>
+    /// 置真则在一条新建的线程上完成识别，await 它的续体随之同步跑到那条线程上。
+    /// Task.Delay 与 Task.Yield 实测会落回刚空出来的原线程，没有区分力。
+    /// </summary>
+    public bool CompleteOnNewThread { get; set; }
+
+    /// <summary>每次识别走到出结果那一步时所在的托管线程号。</summary>
+    public List<int> CompletionThreadIds { get; } = [];
+
+    /// <summary>置真则完全不看取消令牌，模拟原生解码中途打断不了的情形。</summary>
+    public bool IgnoreCancellation { get; set; }
+
     public int RecognizeCallCount { get; private set; }
     public List<int> ReceivedSampleCounts { get; } = [];
+    public List<float[]> ReceivedSamples { get; } = [];
     public bool IsDisposed { get; private set; }
     public bool WasCancelledMidFlight { get; private set; }
 
@@ -54,6 +74,13 @@ public sealed class FakeAsrEngine : IAsrEngine
         RecognizeCallCount++;
         ReceivedSampleCounts.Add(samples.Length);
 
+        var call = RecognizeCallCount;
+
+        if (RecordSamples)
+        {
+            ReceivedSamples.Add(samples.ToArray());
+        }
+
         if (Gate is not null)
         {
             using var registration = cancellationToken.Register(() =>
@@ -68,14 +95,27 @@ public sealed class FakeAsrEngine : IAsrEngine
             await Gate.Task.ConfigureAwait(false);
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
+        if (CompleteOnNewThread)
+        {
+            await new ResumeOnNewThread();
+        }
+
+        CompletionThreadIds.Add(Environment.CurrentManagedThreadId);
+
+        // 脚本先跑：它在「识别途中」触发的取消，要能被下面这道检查看见。
+        var text = Script is null ? NextResult : Script(call);
+
+        if (!IgnoreCancellation)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
 
         if (NextException is not null)
         {
             throw NextException;
         }
 
-        return NextResult;
+        return text;
     }
 
     public ValueTask DisposeAsync()
@@ -83,5 +123,32 @@ public sealed class FakeAsrEngine : IAsrEngine
         IsDisposed = true;
         _disposed.TrySetResult();
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// await 它的续体一律在一条新建的线程上跑。永远报「未完成」，故不存在「先完成、续体落回原线程」的竞态。
+    /// 新线程先停 20ms 再跑续体，让调用方来得及在本方法返回的任务上挂好它自己的续体。
+    /// </summary>
+    private readonly struct ResumeOnNewThread : ICriticalNotifyCompletion
+    {
+        public ResumeOnNewThread GetAwaiter() => this;
+
+        public bool IsCompleted => false;
+
+        public void GetResult()
+        {
+        }
+
+        public void OnCompleted(Action continuation) => Start(continuation);
+
+        public void UnsafeOnCompleted(Action continuation) => Start(continuation);
+
+        private static void Start(Action continuation) =>
+            new Thread(() =>
+            {
+                Thread.Sleep(20);
+                continuation();
+            })
+            { IsBackground = true }.Start();
     }
 }
