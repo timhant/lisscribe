@@ -41,7 +41,7 @@
         故 Reposition() 算的那 16 DIP 边距对胶囊仍然精确。 -->
         <Grid ColumnDefinitions="Auto,*,Auto">
 
-            <!-- 状态点。颜色即三态（绿 / 黄 / 红），与右侧的柱子同源。 -->
+            <!-- 状态点。颜色即状态（录音绿 / 识别黄 / 转写蓝 / 失败红），与右侧的柱子同源。 -->
             <Ellipse Grid.Column="0"
                      x:Name="StatusDot"
                      Width="8" Height="8"

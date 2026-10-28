@@ -191,7 +191,7 @@ public sealed class OverlayViewModelTests
     [Fact]
     public void DisplayText_WhileRecording_SaysSoInWords()
     {
-        // 断言具体词是有意的：只查「非空」的话，三态返回同一个字符串也照样绿。
+        // 断言具体词是有意的：只查「非空」的话，各态返回同一个字符串也照样绿。
         var vm = new OverlayViewModel();
 
         vm.ApplyState(SessionState.Recording, null);
@@ -400,10 +400,11 @@ public sealed class OverlayViewModelTests
 
         var urgent = Assert.IsAssignableFrom<ISolidColorBrush>(vm.BarBrush).Color;
 
-        // 与另外三态都得分得开。与识别态同色的话，余光扫过去像是「已经在识别了，可以松手」。
+        // 与其余各态都得分得开。与识别态同色的话，余光扫过去像是「已经在识别了，可以松手」。
         Assert.NotEqual(BrushColorFor(SessionState.Recording), urgent);
         Assert.NotEqual(BrushColorFor(SessionState.Recognizing), urgent);
         Assert.NotEqual(BrushColorFor(SessionState.Failed), urgent);
+        Assert.NotEqual(BrushColorFor(SessionState.Transcribing), urgent);
         Assert.Equal(byte.MaxValue, urgent.A);
     }
 
