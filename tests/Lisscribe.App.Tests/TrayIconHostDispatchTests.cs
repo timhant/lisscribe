@@ -19,6 +19,7 @@ public sealed class TrayIconHostDispatchTests
 {
     [Theory]
     [InlineData(TrayCommand.OpenSettings, "settings")]
+    [InlineData(TrayCommand.TranscribeFile, "transcribe")]
     [InlineData(TrayCommand.About, "settings")]
     [InlineData(TrayCommand.OpenModelFolder, "model")]
     [InlineData(TrayCommand.OpenLogFolder, "log")]
@@ -44,6 +45,7 @@ public sealed class TrayIconHostDispatchTests
             pause: () => { },
             resume: () => { },
             openSettings: () => { },
+            toggleTranscription: () => { },
             openModelFolder: () => throw new DirectoryNotFoundException("模型目录不在"),
             openLogFolder: () => { },
             requestExit: () => { },
@@ -59,6 +61,7 @@ public sealed class TrayIconHostDispatchTests
             pause: () => calls.Add("pause"),
             resume: () => calls.Add("resume"),
             openSettings: () => calls.Add("settings"),
+            toggleTranscription: () => calls.Add("transcribe"),
             openModelFolder: () => calls.Add("model"),
             openLogFolder: () => calls.Add("log"),
             requestExit: () => calls.Add("exit"),

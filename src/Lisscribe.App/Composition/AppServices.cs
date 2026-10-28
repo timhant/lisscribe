@@ -149,6 +149,9 @@ public sealed class AppServices : IAsyncDisposable
             pause: _controller.Pause,
             resume: _controller.Resume,
             openSettings: OpenSettings,
+
+            // 转写协调器尚未接入，先放一个什么都不做的回调，任务 13 接上。
+            toggleTranscription: () => { },
             openModelFolder: OpenModelFolder,
             openLogFolder: OpenLogFolder,
             requestExit: requestExit,

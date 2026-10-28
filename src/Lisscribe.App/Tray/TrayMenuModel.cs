@@ -4,6 +4,10 @@ namespace Lisscribe.App.Tray;
 public enum TrayCommand
 {
     OpenSettings,
+
+    /// <summary>未在转写时开始一次音频文件转写，转写中则取消它。由组合根按当时的状态决定。</summary>
+    TranscribeFile,
+
     TogglePause,
     OpenModelFolder,
     OpenLogFolder,
@@ -33,14 +37,18 @@ public static class TrayMenuModel
 {
     private const string PauseHeader = "暂停热键";
     private const string ResumeHeader = "恢复热键";
+    private const string TranscribeHeader = "转写音频文件…";
+    private const string CancelTranscriptionHeader = "取消转写";
 
     /// <summary>
-    /// 按当前暂停状态现算一份菜单。「打开模型目录」常驻、不只在模型未加载时出现：让托盘随引擎状态
+    /// 按当前暂停与转写状态现算一份菜单。「打开模型目录」常驻、不只在模型未加载时出现：让托盘随引擎状态
     /// 增减菜单项要多一条跨层接线与一个重建时机，而这一项任何时候点开都不碍事。
+    /// 转写那一项同理常驻，转写中只换文案，与「暂停热键」↔「恢复热键」同一做法（设计 §4.5）。
     /// </summary>
-    public static IReadOnlyList<TrayMenuEntry> Build(bool isPaused) =>
+    public static IReadOnlyList<TrayMenuEntry> Build(bool isPaused, bool isTranscribing) =>
     [
         new("打开配置", TrayCommand.OpenSettings),
+        new(isTranscribing ? CancelTranscriptionHeader : TranscribeHeader, TrayCommand.TranscribeFile),
         new(isPaused ? ResumeHeader : PauseHeader, TrayCommand.TogglePause),
         new(null, null),
         new("打开模型目录", TrayCommand.OpenModelFolder),

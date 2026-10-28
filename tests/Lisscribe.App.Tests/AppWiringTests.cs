@@ -65,6 +65,7 @@ public sealed class AppWiringTests : IAsyncDisposable
             pause: () => { },
             resume: () => { },
             openSettings: () => { },
+            toggleTranscription: () => { },
             openModelFolder: () => { },
             openLogFolder: () => { },
             requestExit: () => { },

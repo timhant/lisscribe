@@ -19,11 +19,16 @@ namespace Lisscribe.App.Tray;
 /// <c>Recording</c>。菜单要反映的是「用户要的是什么」，不是「状态机现在走到哪」——照 <c>State</c>
 /// 渲染会让菜单在那段时间里显示成没暂停。
 /// </para>
+/// <para>
+/// 转写与否则反过来，由组合根经 <see cref="SetTranscribing"/> 告知，点击本身不翻：点下去可能被忽略
+/// （选文件对话框还开着），也可能在选文件时取消，只有组合根知道转写是否真的开始了。
+/// </para>
 /// </remarks>
 public sealed class TrayIconHost(
     Action pause,
     Action resume,
     Action openSettings,
+    Action toggleTranscription,
     Action openModelFolder,
     Action openLogFolder,
     Action requestExit,
@@ -41,8 +46,13 @@ public sealed class TrayIconHost(
 
     private bool _isPaused;
 
+    private bool _isTranscribing;
+
     /// <summary>用户当前要的是「停」还是「跑」。见类注释：这不等于控制器的状态。</summary>
     public bool IsPaused => _isPaused;
+
+    /// <summary>菜单当前是否显示「取消转写」。只由 <see cref="SetTranscribing"/> 改动。</summary>
+    public bool IsTranscribing => _isTranscribing;
 
     public void Attach(Application application)
     {
@@ -82,6 +92,11 @@ public sealed class TrayIconHost(
                 case TrayCommand.About:
                     // 「关于」暂时也开配置窗——单开一个只显示版本号的窗口不值当。
                     openSettings();
+                    break;
+
+                case TrayCommand.TranscribeFile:
+                    // 开始还是取消由组合根定，菜单文案等它回调 SetTranscribing 再换。
+                    toggleTranscription();
                     break;
 
                 case TrayCommand.TogglePause:
@@ -140,9 +155,19 @@ public sealed class TrayIconHost(
     }
 
     /// <summary>
+    /// 转写开始或结束时由组合根调用，换掉转写那一项的文案。必须在 UI 线程上调：重建的是原生菜单。
+    /// </summary>
+    public void SetTranscribing(bool isTranscribing)
+    {
+        _isTranscribing = isTranscribing;
+
+        RebuildMenu();
+    }
+
+    /// <summary>
     /// 整个菜单重建，不做增量更新。<c>NativeMenu.Opening</c> / <c>NeedsUpdate</c> 在 Windows 上
     /// 从不触发（avalonia#8076），所以「弹出前刷新」这条路是死的；每次状态变化重建一份是唯一能
-    /// 保证看到的就是当前状态的做法。菜单只有七项，重建的代价可以忽略。
+    /// 保证看到的就是当前状态的做法。菜单不到十项，重建的代价可以忽略。
     /// </summary>
     private void RebuildMenu()
     {
@@ -153,7 +178,7 @@ public sealed class TrayIconHost(
 
         var menu = new NativeMenu();
 
-        foreach (var entry in TrayMenuModel.Build(_isPaused))
+        foreach (var entry in TrayMenuModel.Build(_isPaused, _isTranscribing))
         {
             if (entry.IsSeparator)
             {

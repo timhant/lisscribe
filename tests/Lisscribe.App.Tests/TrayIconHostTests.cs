@@ -55,7 +55,7 @@ public sealed class TrayIconHostTests
             Assert.NotNull(icon.Icon);
 
             Assert.Equal(
-                TrayMenuModel.Build(isPaused: false).Select(e => e.Header).ToArray(),
+                TrayMenuModel.Build(isPaused: false, isTranscribing: false).Select(e => e.Header).ToArray(),
                 HeadersOf(icon));
         });
     }
@@ -107,6 +107,46 @@ public sealed class TrayIconHostTests
             },
             pause: () => calls.Add("pause"),
             resume: () => calls.Add("resume"));
+    }
+
+    /// <summary>
+    /// 转写那一项的文案由组合根经 <see cref="TrayIconHost.SetTranscribing"/> 拨动，点击本身不翻状态：
+    /// 点下去可能被忽略（选文件对话框还开着），也可能选文件时取消，只有协调器知道转写是否真的开始了。
+    /// </summary>
+    [Fact]
+    public void SetTranscribing_RebuildsTheWholeMenu_AndClickingDoesNotFlipTheTextByItself()
+    {
+        var calls = new List<string>();
+
+        WithHost(
+            (host, app) =>
+            {
+                var icon = IconsOf(app)[0];
+                var firstMenu = icon.Menu;
+
+                host.Invoke(TrayCommand.TranscribeFile);
+
+                // 点击只转调，文案不动。
+                Assert.Equal(["transcribe"], calls);
+                Assert.False(host.IsTranscribing);
+                Assert.Contains("转写音频文件…", HeadersOf(icon));
+                Assert.Same(firstMenu, icon.Menu);
+
+                host.SetTranscribing(true);
+
+                Assert.True(host.IsTranscribing);
+                Assert.Contains("取消转写", HeadersOf(icon));
+                Assert.DoesNotContain("转写音频文件…", HeadersOf(icon));
+
+                // 同 TogglePause 那条：原生菜单必须整份重建，原地改 Header 在真机上不更新。
+                Assert.NotSame(firstMenu, icon.Menu);
+
+                host.SetTranscribing(false);
+
+                Assert.False(host.IsTranscribing);
+                Assert.Contains("转写音频文件…", HeadersOf(icon));
+            },
+            toggleTranscription: () => calls.Add("transcribe"));
     }
 
     [Fact]
@@ -165,11 +205,13 @@ public sealed class TrayIconHostTests
     private static IReadOnlyList<TrayIcon> IconsOf(Application app) =>
         TrayIcon.GetIcons(app) ?? (IReadOnlyList<TrayIcon>)[];
 
-    private static TrayIconHost NewHost(Action? pause = null, Action? resume = null) =>
+    private static TrayIconHost NewHost(
+        Action? pause = null, Action? resume = null, Action? toggleTranscription = null) =>
         new(
             pause ?? (() => { }),
             resume ?? (() => { }),
             openSettings: () => { },
+            toggleTranscription: toggleTranscription ?? (() => { }),
             openModelFolder: () => { },
             openLogFolder: () => { },
             requestExit: () => { },
@@ -179,9 +221,13 @@ public sealed class TrayIconHostTests
     /// 装配、跑断言、无论如何都拆掉。留一个真图标在托盘里就是脏状态，
     /// 而下一条测试会因为 <c>GetIcons</c> 里多出一个而以指不到真因的方式失败。
     /// </summary>
-    private static void WithHost(Action<TrayIconHost, Application> assert, Action? pause = null, Action? resume = null)
+    private static void WithHost(
+        Action<TrayIconHost, Application> assert,
+        Action? pause = null,
+        Action? resume = null,
+        Action? toggleTranscription = null)
     {
-        var host = NewHost(pause, resume);
+        var host = NewHost(pause, resume, toggleTranscription);
 
         AvaloniaTestHost.Run(() =>
         {
