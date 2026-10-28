@@ -30,11 +30,23 @@ public static class TranscriptFileNamer
         var stem = Path.GetFileNameWithoutExtension(sourcePath)
             + "-" + startedAt.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
 
-        var candidate = Path.Combine(directory, stem + ".txt");
+        return ChooseFreePath(Path.Combine(directory, stem + ".txt"), exists);
+    }
+
+    /// <summary>
+    /// preferredPath 已被占时，依次试「主名-1.扩展名」「主名-2.扩展名」……，返回第一个空着的完整路径。
+    /// </summary>
+    public static string ChooseFreePath(string preferredPath, Func<string, bool> exists)
+    {
+        var directory = Path.GetDirectoryName(preferredPath) ?? string.Empty;
+        var stem = Path.GetFileNameWithoutExtension(preferredPath);
+        var extension = Path.GetExtension(preferredPath);
+
+        var candidate = preferredPath;
 
         for (var n = 1; exists(candidate); n++)
         {
-            candidate = Path.Combine(directory, stem + "-" + n.ToString(CultureInfo.InvariantCulture) + ".txt");
+            candidate = Path.Combine(directory, stem + "-" + n.ToString(CultureInfo.InvariantCulture) + extension);
         }
 
         return candidate;

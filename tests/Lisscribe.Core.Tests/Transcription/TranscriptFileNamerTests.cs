@@ -116,4 +116,23 @@ public sealed class TranscriptFileNamerTests
 
         Assert.Equal(Path.Combine(Base, "x-20261028213045.txt"), path);
     }
+
+    [Fact]
+    public void ChooseFreePath_WhenFree_ReturnsThePreferredPathUnchanged()
+    {
+        var preferred = Path.Combine(Base, "会议-20261028213045.txt");
+
+        Assert.Equal(preferred, TranscriptFileNamer.ChooseFreePath(preferred, _ => false));
+    }
+
+    [Fact]
+    public void ChooseFreePath_WhenTaken_InsertsTheSuffixBeforeTheExtension()
+    {
+        var preferred = Path.Combine(Base, "会议-20261028213045.txt");
+        var taken = new HashSet<string> { preferred, Path.Combine(Base, "会议-20261028213045-1.txt") };
+
+        var path = TranscriptFileNamer.ChooseFreePath(preferred, taken.Contains);
+
+        Assert.Equal(Path.Combine(Base, "会议-20261028213045-2.txt"), path);
+    }
 }
