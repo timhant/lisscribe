@@ -1,3 +1,6 @@
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lisscribe.App.Tray;
 using Lisscribe.App.ViewModels;
@@ -7,6 +10,7 @@ using Lisscribe.Core.Asr;
 using Lisscribe.Core.Config;
 using Lisscribe.Core.Hotkey;
 using Lisscribe.Core.Session;
+using Lisscribe.Core.Transcription;
 using Lisscribe.Platform;
 using Microsoft.Extensions.Logging;
 
@@ -15,8 +19,8 @@ namespace Lisscribe.App.Composition;
 /// <summary>
 /// 组合根：把真正的平台实现 new 出来，接上 <see cref="AppWiring"/>，再按顺序启停。
 /// 本类刻意不含任何判断逻辑——凡是「什么情况下该怎样」的规矩都住在别处（状态机、
-/// <see cref="AppWiring"/>、<see cref="TrayMenuModel"/>）。这里只剩「谁在谁之前」，
-/// 而那件事有测试盯不住的部分，故顺序上的每一条都写明了理由。
+/// <see cref="AppWiring"/>、<see cref="TrayMenuModel"/>、<see cref="TranscriptionCoordinator"/>）。
+/// 这里只剩「谁在谁之前」，而那件事有测试盯不住的部分，故顺序上的每一条都写明了理由。
 /// </summary>
 public sealed class AppServices : IAsyncDisposable
 {
@@ -52,6 +56,8 @@ public sealed class AppServices : IAsyncDisposable
     private readonly AppWiring _wiring;
 
     private readonly RestartSequence _restartSequence;
+
+    private readonly TranscriptionCoordinator _transcription;
 
     private SettingsWindow? _settingsWindow;
 
@@ -149,9 +155,7 @@ public sealed class AppServices : IAsyncDisposable
             pause: _controller.Pause,
             resume: _controller.Resume,
             openSettings: OpenSettings,
-
-            // 转写协调器尚未接入，先放一个什么都不做的回调，任务 13 接上。
-            toggleTranscription: () => { },
+            toggleTranscription: ToggleTranscription,
             openModelFolder: OpenModelFolder,
             openLogFolder: OpenLogFolder,
             requestExit: requestExit,
@@ -170,6 +174,26 @@ public sealed class AppServices : IAsyncDisposable
         // 换档要重启才生效，而重启就是「拉起后继进程 + 请求本进程退出」这两步，顺序不可换。
         // requestExit 与托盘「退出」走的是同一个，故收尾路径也是同一条。
         _restartSequence = new RestartSequence(new ProcessAppRestarter(), requestExit);
+
+        // 转写用的就是热键听写那个引擎，不另加载一份（设计 §2）。中文数字转换取运行中那份选项，与热键链路同一口径。
+        var transcriber = new FileTranscriber(
+            _engine,
+            new MediaFoundationAudioFileDecoder(),
+            SessionOptionsFrom(_config).ApplyChineseNumberItn,
+            _loggerFactory.CreateLogger<FileTranscriber>());
+
+        // 保存位置每次现读配置文件，不用启动时那份 _config：改了立即生效，不必重启（设计 §4.7）。
+        _transcription = new TranscriptionCoordinator(
+            _controller,
+            pickSourceFile: PickAudioFileAsync,
+            transcribe: transcriber.RunAsync,
+            readConfiguredOutputDir: ReadConfiguredTranscriptDir,
+            baseDirectory: baseDirectory,
+            openResult: OpenWithDefaultProgram,
+            showNotice: ShowNotice,
+            setTrayTranscribing: SetTrayTranscribing,
+            TimeProvider.System,
+            _loggerFactory.CreateLogger<TranscriptionCoordinator>());
     }
 
     public string LogDirectory { get; }
@@ -233,9 +257,9 @@ public sealed class AppServices : IAsyncDisposable
 
     /// <summary>
     /// 收尾。只跑一次：托盘的「退出」与窗口关闭都可能走到这里。
-    /// 顺序：先摘托盘（<c>IsVisible = false</c> 再 Dispose），再停状态机（它自己会按定好的次序
-    /// 停采集、等在途识别、最后 Dispose 引擎），最后才拆事件与日志。反过来做会让收尾过程中的
-    /// 状态变更打到已经关掉的窗口上。
+    /// 顺序：先摘托盘（<c>IsVisible = false</c> 再 Dispose），再取消在途转写并等它收尾，再停状态机
+    /// （它自己会按定好的次序停采集、等在途识别、最后 Dispose 引擎），最后才拆事件与日志。反过来做会让
+    /// 收尾过程中的状态变更打到已经关掉的窗口上。
     /// </summary>
     public async ValueTask DisposeAsync()
     {
@@ -245,6 +269,10 @@ public sealed class AppServices : IAsyncDisposable
         }
 
         _tray.Detach();
+
+        // 转写必须先停：ShutdownAsync 会 Dispose 引擎，而转写正用着它，原生句柄被释放时还在解码就是进程级崩溃。
+        // 取消最多等当前这一段识别完（Qwen3 一段约 4s）。本方法在 UI 线程上被同步等着，故协调器的收尾不回 UI 线程。
+        await _transcription.CancelAndWaitAsync().ConfigureAwait(false);
 
         try
         {
@@ -423,16 +451,112 @@ public sealed class AppServices : IAsyncDisposable
                 return;
             }
 
-            if (!_restartSequence.TryRestart(out var error))
-            {
-                // 拉不起来时本进程原样活着，故这里还能报得出话来。
-                _logger.LogError("重启 lisscribe 失败：{Error}", error);
-                ShowNotice($"重启失败：{error}");
-            }
+            // 不 await：这里是关窗回调，跑在 UI 线程上。异常全在 RestartAfterTranscriptionAsync 内部收住。
+            _ = RestartAfterTranscriptionAsync();
         };
 
         window.Show();
     });
+
+    /// <summary>
+    /// 用户点了「立即重启」：先取消在途转写并等它收尾，再拉起后继进程。重启走的是退出那条路，
+    /// 退出时也会先等转写，但那时托盘已摘、悬浮条也快没了，在这里先停掉，转写收尾的状态变更还有地方显示。
+    /// 等完后投回 UI 线程再重启：请求退出要在 UI 线程上发。
+    /// </summary>
+    private async Task RestartAfterTranscriptionAsync()
+    {
+        try
+        {
+            await _transcription.CancelAndWaitAsync().ConfigureAwait(false);
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_restartSequence.TryRestart(out var error))
+                {
+                    // 拉不起来时本进程原样活着，故这里还能报得出话来。
+                    _logger.LogError("重启 lisscribe 失败：{Error}", error);
+                    ShowNotice($"重启失败：{error}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "重启前停止转写失败。");
+            ShowNotice($"重启失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 托盘「转写音频文件…」/「取消转写」。不 await：托盘回调跑在 UI 线程上，返回的任务要等用户选完文件、
+    /// 转写完才完成。ToggleAsync 自己收住全部异常，丢弃它不会漏掉任何东西。
+    /// </summary>
+    private void ToggleTranscription() => _ = _transcription.ToggleAsync();
+
+    /// <summary>
+    /// 切换托盘那一项的文案。只投递不等待：协调器在线程池上收尾，而退出时 UI 线程正同步等着那段收尾，等它就是死锁。
+    /// </summary>
+    private void SetTrayTranscribing(bool isTranscribing) =>
+        Dispatcher.UIThread.Post(() => _tray.SetTranscribing(isTranscribing));
+
+    /// <summary>现读配置文件里的转写保存位置，与配置窗存下的值同一份。</summary>
+    private string? ReadConfiguredTranscriptDir() =>
+        ConfigValidator.Validate(_configStore.Load()).Normalized.Transcription?.OutputDir;
+
+    /// <summary>
+    /// 弹选择文件对话框，返回选中的本地路径，取消返回 null。托盘程序没有主窗口，而 StorageProvider 要挂在
+    /// 一个 TopLevel 上，故在 UI 线程上临时建一个看不见的 1×1 窗口当 owner，选完即关。
+    /// </summary>
+    private static Task<string?> PickAudioFileAsync() =>
+        Dispatcher.UIThread.InvokeAsync(PickAudioFileOnUiThreadAsync);
+
+    /// <summary>只在 UI 线程上调。owner 窗口无边框、不进任务栏、全透明，置于屏幕中央，对话框随它居中弹出。</summary>
+    private static async Task<string?> PickAudioFileOnUiThreadAsync()
+    {
+        var owner = new Window
+        {
+            Title = "lisscribe",
+            Width = 1,
+            Height = 1,
+            CanResize = false,
+            ShowInTaskbar = false,
+            SystemDecorations = SystemDecorations.None,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Background = Brushes.Transparent,
+            Opacity = 0,
+
+            // 置顶：对话框是它的从属窗口，随它一起在最前，不会被别的窗口压在下面而让人以为点了没反应。
+            Topmost = true,
+        };
+
+        try
+        {
+            // 先 Show 再要 StorageProvider：窗口真建出来、有了句柄，对话框才有 owner 可挂。
+            owner.Show();
+            owner.Activate();
+
+            var picked = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "选择要转写的音频文件",
+                AllowMultiple = false,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("音频文件") { Patterns = ["*.m4a", "*.mp3", "*.wav", "*.wma", "*.aac"] },
+                    new FilePickerFileType("所有文件") { Patterns = ["*.*"] },
+                ],
+            });
+
+            return picked.Count > 0 ? picked[0].TryGetLocalPath() : null;
+        }
+        finally
+        {
+            owner.Close();
+        }
+    }
+
+    /// <summary>用系统默认程序打开转写结果。没有程序关联 .txt 时抛，由协调器接住并告诉用户文件在哪。</summary>
+    private static void OpenWithDefaultProgram(string path) =>
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true })
+            ?.Dispose();
 
     private async Task ReloadEngineAsync(string modelDir)
     {

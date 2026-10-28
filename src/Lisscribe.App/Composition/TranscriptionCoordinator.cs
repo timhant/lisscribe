@@ -45,7 +45,7 @@ public sealed class TranscriptionCoordinator
     /// <summary>护住 <see cref="_run"/> 以及它身上的两个标志。点击来自 UI 线程，收尾跑在线程池上。</summary>
     private readonly Lock _gate = new();
 
-    /// <summary>当前这一次，从点下去到收尾完毕；没有时为 null。</summary>
+    /// <summary>当前这一次，从点下去到收尾完毕。没有时为 null。</summary>
     private Run? _run;
 
     /// <param name="controller">裁决能不能开始，并显示进度与结局。</param>
@@ -83,7 +83,7 @@ public sealed class TranscriptionCoordinator
 
     /// <summary>
     /// 托盘那一项被点了。空闲时开始一次，选文件期间忽略（免得连点弹出两个对话框），转写中则取消且不等它停下。
-    /// 返回的任务在这一次整段收尾后完成，永不抛出；忽略与取消时立即完成。
+    /// 返回的任务在这一次整段收尾后完成，永不抛出。忽略与取消时立即完成。
     /// </summary>
     public Task ToggleAsync()
     {
@@ -306,7 +306,7 @@ public sealed class TranscriptionCoordinator
         }
     }
 
-    /// <summary>打开转写结果；打不开不改结局，只告诉用户文件在哪。两句话都有时并成一条，接连两条后一条会当场顶掉前一条。</summary>
+    /// <summary>打开转写结果。打不开不改结局，只告诉用户文件在哪。两句话都有时并成一条，接连两条后一条会当场顶掉前一条。</summary>
     private void Deliver(string outputPath, string? fallbackNotice)
     {
         string? openFailure = null;
@@ -331,7 +331,7 @@ public sealed class TranscriptionCoordinator
     }
 
     /// <summary>
-    /// 定保存目录（设计 §4.4）：设定的目录建不了或写不进就回落到默认的 transcripts，并记下要告诉用户的话；
+    /// 定保存目录（设计 §4.4）：设定的目录建不了或写不进就回落到默认的 transcripts，并记下要告诉用户的话。
     /// 默认目录也不行就不开始。设定值本来就空时没有回落这回事。
     /// </summary>
     private OutputTarget PrepareOutputDirectory()
@@ -367,7 +367,7 @@ public sealed class TranscriptionCoordinator
         return new OutputTarget(defaultDirectory, fallbackNotice, null);
     }
 
-    /// <summary>设定值按程序目录展开再建、再探测；展开本身失败（路径非法）同样算不可用。</summary>
+    /// <summary>设定值按程序目录展开再建、再探测。展开本身失败（路径非法）同样算不可用。</summary>
     private DirectoryWritabilityReport PrepareConfiguredDirectory(string configured)
     {
         string directory;
@@ -414,7 +414,7 @@ public sealed class TranscriptionCoordinator
     /// <summary>一次点击从开始到收尾的全部状态。两个标志只在 <see cref="_gate"/> 内读写。</summary>
     private sealed class Run
     {
-        /// <summary>不 Dispose：取消可能与收尾并发，释放后再 Cancel 会抛；不带计时器的令牌源不握非托管资源。</summary>
+        /// <summary>不 Dispose：取消可能与收尾并发，释放后再 Cancel 会抛。不带计时器的令牌源不握非托管资源。</summary>
         public CancellationTokenSource Cancellation { get; } = new();
 
         /// <summary>整段收尾完毕时完成。续体异步跑，等的人不会接着在收尾线程上往下执行。</summary>

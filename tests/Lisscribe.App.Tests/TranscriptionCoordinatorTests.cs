@@ -454,7 +454,7 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
 
     /// <summary>
     /// 退出与重启都靠这一条：等到的必须是整段收尾（状态机回静止、托盘切回），不是「令牌已取消」。
-    /// 转写器收到取消后还要一会儿才放手（当前这一段识别完），这段时间里引擎仍在用；之后才轮得到
+    /// 转写器收到取消后还要一会儿才放手（当前这一段识别完），这段时间里引擎仍在用。之后才轮得到
     /// <see cref="SessionController.ShutdownAsync"/> 去释放引擎。
     /// </summary>
     [Fact]
@@ -498,7 +498,7 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
     [Fact]
     public async Task CancelAndWait_WhileThePickerIsOpen_ReturnsAtOnce_AndTheLatePickStartsNothing()
     {
-        // 退出时不等用户关对话框；对话框晚些关上，选中的文件也不再转写。
+        // 退出时不等用户关对话框。对话框晚些关上，选中的文件也不再转写。
         var picked = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pick = () => picked.Task;
 
