@@ -17,7 +17,8 @@ public sealed record LisscribeConfig(
     HotkeySection Hotkey,
     AsrSection Asr,
     OutputSection Output,
-    AppSection App)
+    AppSection App,
+    TranscriptionSection? Transcription = null)
 {
     public const int CurrentVersion = 1;
 
@@ -31,7 +32,8 @@ public sealed record LisscribeConfig(
         Output: new OutputSection("SendInput", RestoreClipboard: true,
                                   TrimTrailingPunctuation: true, TrimPunctuationMaxChars: 8,
                                   ChineseNumberItn: true),
-        App: new AppSection(AutoStart: false, LogLevel: "Info"));
+        App: new AppSection(AutoStart: false, LogLevel: "Info"),
+        Transcription: new TranscriptionSection(""));
 }
 
 public sealed record HotkeySection(string[] Modifiers, string MainKey, int HoldThresholdMs);
@@ -50,3 +52,9 @@ public sealed record OutputSection(
     bool ChineseNumberItn = true);
 
 public sealed record AppSection(bool AutoStart, string LogLevel);
+
+/// <param name="OutputDir">
+/// 转写结果的保存目录，空串表示程序目录下的 transcripts。这一节可缺失（旧 <c>config.json</c> 没有它），
+/// 故 <see cref="LisscribeConfig.Transcription"/> 可空，由 <see cref="ConfigValidator"/> 补成空串。
+/// </param>
+public sealed record TranscriptionSection(string OutputDir);

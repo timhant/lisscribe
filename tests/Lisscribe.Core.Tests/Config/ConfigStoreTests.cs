@@ -231,6 +231,77 @@ public sealed class ConfigStoreTests : IDisposable
         Assert.True(File.Exists(Path + ".bad"));
     }
 
+    /// <summary>
+    /// <b>升级路径：0.3.0 及更早的 <c>config.json</c> 没有 <c>transcription</c> 节</b>（Qwen3 包预置的也没有）。
+    /// 这一节缺失不是损坏——不得生成 <c>.bad</c>、不得退回默认，规范化后保存位置为空串。
+    /// </summary>
+    [Fact]
+    public void Load_WhenTranscriptionSectionIsAbsent_IsOkAndNormalizesToEmptyDir()
+    {
+        File.WriteAllText(Path, """
+            {
+              "version": 1,
+              "hotkey": { "modifiers": ["Ctrl", "Alt"], "mainKey": "Space", "holdThresholdMs": 300 },
+              "asr": { "engine": "Qwen3Asr", "modelDir": "./models/qwen3-asr", "provider": "cpu" },
+              "output": { "mode": "SendInput", "restoreClipboard": true,
+                          "trimTrailingPunctuation": true, "trimPunctuationMaxChars": 8,
+                          "chineseNumberItn": true },
+              "app": { "autoStart": false, "logLevel": "Info" }
+            }
+            """);
+        var store = new ConfigStore(Path);
+
+        var config = store.Load();
+        var normalized = ConfigValidator.Validate(config).Normalized;
+
+        Assert.Equal(ConfigLoadOutcome.Ok, store.LastOutcome);
+        Assert.False(File.Exists(Path + ".bad"));
+        Assert.Equal("Qwen3Asr", config.Asr.Engine);
+        Assert.Equal("", normalized.Transcription!.OutputDir);
+    }
+
+    /// <summary>有节、没有 <c>outputDir</c> 字段：同样按「未设置」处理，不算损坏。</summary>
+    [Fact]
+    public void Load_WhenOutputDirFieldIsAbsent_IsOkAndNormalizesToEmptyDir()
+    {
+        File.WriteAllText(Path, """
+            {
+              "version": 1,
+              "hotkey": { "modifiers": ["Ctrl", "Alt"], "mainKey": "Space", "holdThresholdMs": 300 },
+              "asr": { "engine": "SenseVoice", "modelDir": "./models/sense-voice", "provider": "cpu" },
+              "output": { "mode": "SendInput", "restoreClipboard": true,
+                          "trimTrailingPunctuation": true, "trimPunctuationMaxChars": 8,
+                          "chineseNumberItn": true },
+              "app": { "autoStart": false, "logLevel": "Info" },
+              "transcription": { }
+            }
+            """);
+        var store = new ConfigStore(Path);
+
+        var config = store.Load();
+        var normalized = ConfigValidator.Validate(config).Normalized;
+
+        Assert.Equal(ConfigLoadOutcome.Ok, store.LastOutcome);
+        Assert.False(File.Exists(Path + ".bad"));
+        Assert.Equal("", normalized.Transcription!.OutputDir);
+    }
+
+    /// <summary>往返：带中文与空格的路径存盘再读回，逐字相同，且 JSON 键名是 camelCase 的 <c>outputDir</c>。</summary>
+    [Fact]
+    public void SaveThenLoad_RoundTripsOutputDirWithChineseAndSpaces()
+    {
+        const string dir = @"D:\我的 录音\转写";
+        var store = new ConfigStore(Path);
+
+        store.Save(LisscribeConfig.CreateDefault() with { Transcription = new TranscriptionSection(dir) });
+        var loaded = store.Load();
+
+        Assert.Equal(ConfigLoadOutcome.Ok, store.LastOutcome);
+        Assert.Equal(dir, loaded.Transcription!.OutputDir);
+        Assert.Contains("\"transcription\"", File.ReadAllText(Path));
+        Assert.Contains("\"outputDir\"", File.ReadAllText(Path));
+    }
+
     [Fact]
     public void Save_WhenSwapFails_LeavesNoTempFileAndRethrows()
     {

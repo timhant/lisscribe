@@ -109,6 +109,9 @@ public static class ConfigValidator
             normalized = config with
             {
                 Hotkey = config.Hotkey with { Modifiers = normalizedModifiers },
+
+                // 旧配置没有这一节，缺失不算损坏；路径是否存在、可写，留到转写开始时再查。
+                Transcription = new TranscriptionSection(config.Transcription?.OutputDir ?? ""),
             };
         }
         else

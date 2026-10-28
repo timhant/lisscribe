@@ -181,4 +181,35 @@ public sealed class ConfigValidatorTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Contains("output"));
     }
+
+    [Fact]
+    public void Validate_WhenTranscriptionSectionMissing_IsValidAndFillsEmptyOutputDir()
+    {
+        var result = ConfigValidator.Validate(Default with { Transcription = null });
+
+        Assert.True(result.IsValid);
+        Assert.Equal("", result.Normalized.Transcription!.OutputDir);
+    }
+
+    [Fact]
+    public void Validate_WhenOutputDirNull_NormalizesToEmpty()
+    {
+        var result = ConfigValidator.Validate(
+            Default with { Transcription = new TranscriptionSection(null!) });
+
+        Assert.True(result.IsValid);
+        Assert.Equal("", result.Normalized.Transcription!.OutputDir);
+    }
+
+    [Fact]
+    public void Validate_KeepsAnOutputDirThatIsSet_AndDoesNotCheckItExists()
+    {
+        const string dir = @"Z:\不存在 的目录";
+
+        var result = ConfigValidator.Validate(
+            Default with { Transcription = new TranscriptionSection(dir) });
+
+        Assert.True(result.IsValid);
+        Assert.Equal(dir, result.Normalized.Transcription!.OutputDir);
+    }
 }

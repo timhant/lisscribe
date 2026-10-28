@@ -97,6 +97,7 @@ public sealed class ConfigRestartPolicyTests
             Hotkey = baseline.Hotkey with { Modifiers = ["Ctrl"], MainKey = "F9" },
             Asr = baseline.Asr with { ModelDir = "D:/models/elsewhere" },
             App = baseline.App with { AutoStart = true },
+            Transcription = new TranscriptionSection(@"D:\我的 录音\转写"),
         };
 
         Assert.Empty(ConfigRestartPolicy.Diff(baseline, saved));
