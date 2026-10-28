@@ -569,6 +569,40 @@ public sealed class TranscriptionCoordinatorTests : IAsyncDisposable
         Assert.Empty(Notices);
     }
 
+    /// <summary>
+    /// 重启确认窗据此决定要不要说「正在进行的转写会被取消」。选文件期间还没有转写，说了就是假话。
+    /// </summary>
+    [Fact]
+    public async Task IsTranscribing_IsFalseWhilePicking_TrueWhileRunning_AndFalseOnceWoundDown()
+    {
+        var picked = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _pick = () => picked.Task;
+        _transcribe = async (_, output, _, _) =>
+        {
+            entered.SetResult();
+            await release.Task;
+
+            return TranscriptionOutcome.Success(output);
+        };
+
+        var coordinator = NewCoordinator();
+        Assert.False(coordinator.IsTranscribing);
+
+        var run = coordinator.ToggleAsync();
+        Assert.False(coordinator.IsTranscribing);
+
+        picked.SetResult(_source);
+        await entered.Task.WaitAsync(Patience, TestContext.Current.CancellationToken);
+        Assert.True(coordinator.IsTranscribing);
+
+        release.SetResult();
+        await run.WaitAsync(Patience, TestContext.Current.CancellationToken);
+        Assert.False(coordinator.IsTranscribing);
+    }
+
     [Fact]
     public async Task TheLog_NamesTheSourceAndTheOutput_AndHowItEnded()
     {

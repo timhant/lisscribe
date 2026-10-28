@@ -13,8 +13,16 @@ namespace Lisscribe.Core.Config;
 /// 「模型目录已改」会去把目录再改一遍。文案统一之后那个分辨力整个搬到了日志上
 /// （<see cref="ConfigChange"/>）：<b>用户看弹窗，排障的人看日志</b>，UI 上不多一分复杂度。
 /// </para>
+///
+/// <para>
+/// <see cref="ConfirmMessageFor"/> 的参数不是「改了什么」，而是「重启会不会打断用户手上的事」，与上一条不冲突。
+/// </para>
 /// </summary>
 public static class RestartPrompt
 {
     public const string Message = "配置已修改，重启 lisscribe 之后才会全部生效。";
+
+    /// <summary>重启确认窗的文案。有转写在跑时说明它会被取消（设计 §4.6），点「稍后」退回的红条仍用 <see cref="Message"/>。</summary>
+    public static string ConfirmMessageFor(bool isTranscribing) =>
+        isTranscribing ? Message + "正在进行的转写会被取消。" : Message;
 }

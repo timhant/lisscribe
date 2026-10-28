@@ -443,7 +443,8 @@ public sealed class AppServices : IAsyncDisposable
             return;
         }
 
-        var window = new RestartConfirmWindow(RestartPrompt.Message);
+        // 有转写在跑就在确认窗里说它会被取消（设计 §4.6）。点「稍后」退回的红条不加这句：那时不重启，转写照跑。
+        var window = new RestartConfirmWindow(RestartPrompt.ConfirmMessageFor(_transcription.IsTranscribing));
 
         _restartWindow = window;
 

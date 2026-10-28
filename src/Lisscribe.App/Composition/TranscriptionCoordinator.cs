@@ -82,6 +82,20 @@ public sealed class TranscriptionCoordinator
     }
 
     /// <summary>
+    /// 已向状态机申请开始、尚未收尾。选文件期间为 false：那时还没有转写可取消。重启确认窗据此决定要不要说转写会被取消。
+    /// </summary>
+    public bool IsTranscribing
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _run?.Begun == true;
+            }
+        }
+    }
+
+    /// <summary>
     /// 托盘那一项被点了。空闲时开始一次，选文件期间忽略（免得连点弹出两个对话框），转写中则取消且不等它停下。
     /// 返回的任务在这一次整段收尾后完成，永不抛出。忽略与取消时立即完成。
     /// </summary>

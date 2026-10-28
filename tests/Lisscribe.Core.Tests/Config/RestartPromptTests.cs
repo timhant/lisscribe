@@ -24,4 +24,29 @@ public sealed class RestartPromptTests
         Assert.Contains("重启", RestartPrompt.Message, StringComparison.Ordinal);
         Assert.Contains("全部", RestartPrompt.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// 设计 §4.6：重启前先取消转写并告知用户。只在真有转写在跑时加那一句，平时一字不多。
+    /// 期望文案逐字手写，不由被测代码拼。
+    /// </summary>
+    [Fact]
+    public void TheConfirmMessage_WarnsThatTheTranscriptionWillBeCancelled_OnlyWhileOneIsRunning()
+    {
+        Assert.Equal(
+            "配置已修改，重启 lisscribe 之后才会全部生效。",
+            RestartPrompt.ConfirmMessageFor(isTranscribing: false));
+
+        Assert.Equal(
+            "配置已修改，重启 lisscribe 之后才会全部生效。正在进行的转写会被取消。",
+            RestartPrompt.ConfirmMessageFor(isTranscribing: true));
+    }
+
+    /// <summary>
+    /// 用户点「稍后」时退回的红条用的是 <see cref="RestartPrompt.Message"/>。那时没有重启，转写也不会被取消，这句话不许混进去。
+    /// </summary>
+    [Fact]
+    public void TheLaterNotice_SaysNothingAboutTranscription()
+    {
+        Assert.DoesNotContain("转写", RestartPrompt.Message, StringComparison.Ordinal);
+    }
 }
