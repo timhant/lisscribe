@@ -64,15 +64,19 @@ public sealed class OverlayViewModelTests
         Assert.Equal(state == SessionState.Recording, vm.IsVolumeVisible);
     }
 
+    /// <summary>
+    /// 转写也挂这条不确定进度：百分比要识别完一段才跳一格，可能十来秒不动，没有它看着像卡住。
+    /// </summary>
     [Theory]
     [MemberData(nameof(AllStates))]
-    public void IndeterminateBar_IsShownOnlyWhileRecognizing(SessionState state)
+    public void IndeterminateBar_IsShownOnlyWhileRecognizingOrTranscribing(SessionState state)
     {
         var vm = new OverlayViewModel();
 
         vm.ApplyState(state, null);
 
-        Assert.Equal(state == SessionState.Recognizing, vm.IsIndeterminate);
+        var shouldShow = state is SessionState.Recognizing or SessionState.Transcribing;
+        Assert.Equal(shouldShow, vm.IsIndeterminate);
     }
 
     [Fact]
@@ -454,19 +458,19 @@ public sealed class OverlayViewModelTests
     }
 
     [Fact]
-    public void ThePill_WhileTranscribing_IsAsWideAsWhileRecording()
+    public void ThePill_WhileTranscribing_HasAFixedWidth_WhateverTheProgress()
     {
-        // 取最长的那句「100%」：胶囊要是随文字变宽，进度每跳一格整颗胶囊就抖一下。
-        var recording = new OverlayViewModel();
-        recording.ApplyState(SessionState.Recording, null);
+        // 胶囊要是随文字变宽，进度每跳一格整颗胶囊就抖一下。故取最短与最长两句，宽度必须相同。
+        var shortest = new OverlayViewModel();
+        shortest.ApplyState(SessionState.Transcribing, "转写中 0%");
 
-        var transcribing = new OverlayViewModel();
-        transcribing.ApplyState(SessionState.Transcribing, "转写中 100%");
+        var longest = new OverlayViewModel();
+        longest.ApplyState(SessionState.Transcribing, "转写中 100%");
 
-        // 阳性对照：录音态是个定数。两边都是 NaN（自适应）时下面那句相等照样成立。
-        Assert.False(double.IsNaN(recording.PillWidthDip), "录音态的胶囊宽度不是定数");
+        // 两边都是 NaN（自适应）时下面那句相等照样成立，故先钉住它是个定数。
+        Assert.False(double.IsNaN(longest.PillWidthDip), "转写态的胶囊宽度不是定数");
 
-        Assert.Equal(recording.PillWidthDip, transcribing.PillWidthDip);
+        Assert.Equal(shortest.PillWidthDip, longest.PillWidthDip);
     }
 
     private static Color BrushColorFor(SessionState state)

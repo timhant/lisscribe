@@ -6,7 +6,7 @@ using Lisscribe.Core.Session;
 namespace Lisscribe.App.ViewModels;
 
 /// <summary>
-/// 悬浮条四态：录音中绿色音量条、识别中黄色不确定进度、转写中蓝色进度文字、失败红色。
+/// 悬浮条四态：录音中绿色音量条、识别中黄色不确定进度、转写中蓝色进度文字加不确定进度、失败红色。
 /// </summary>
 /// <remarks>
 /// 本类没有线程亲和性，也刻意不去获取 Dispatcher——但这不等于随便哪条线程都能写它，
@@ -28,12 +28,18 @@ public sealed partial class OverlayViewModel : ObservableObject
     public const double BarMaxHeightDip = 14d;
 
     /// <summary>
-    /// 平时那颗胶囊的宽（DIP）。录音中、识别中、转写中必须一模一样大。
+    /// 录音中与识别中那颗胶囊的宽（DIP），两态必须一模一样大。
     /// 写死一个宽度，不靠「两边内容碰巧一样宽」：文字实测两态差 2 DIP（汉字并非等宽，
-    /// 字体回退一变就再差一点）。现在由构造保证：这一个数管住这几态，余量落进中间那一列。
-    /// 转写态最长那句「转写中 100%」按 12 号字估约 71 DIP，而那一态右侧不显示指示器，文字列有 84 DIP。
+    /// 字体回退一变就再差一点）。现在由构造保证：这一个数管住这两态，余量落进中间那一列。
+    /// 转写态文字更长、右侧又挂着进度条，这个宽度放不下，另用 <see cref="TranscribingPillWidthDip"/>。
     /// </summary>
     public const double NormalPillWidthDip = 132d;
+
+    /// <summary>
+    /// 转写中那颗胶囊的宽（DIP），定值，进度跳格时胶囊不抖。
+    /// 实测「转写中 100%」12 号字宽 68.23 DIP，加固定的 81 DIP（内边距 24、状态点 8、文字边距 16、进度条 33）约 150，再留 10 DIP 给字体回退。
+    /// </summary>
+    public const double TranscribingPillWidthDip = 160d;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(BarBrush))]
@@ -95,12 +101,18 @@ public sealed partial class OverlayViewModel : ObservableObject
     public double Bar6Height => _barHeights[6];
 
     /// <summary>
-    /// 胶囊该有多宽（DIP）。平时是 <see cref="NormalPillWidthDip"/> 这个定值，失败态返回
+    /// 胶囊该有多宽（DIP）。转写中是 <see cref="TranscribingPillWidthDip"/>，其余可见态是
+    /// <see cref="NormalPillWidthDip"/>，都是定值；失败态返回
     /// <c>NaN</c>——那是 Avalonia 里「自适应」的写法，让那句提示自己撑开。
     /// 改的是窗口里面那个 <c>Border</c>，不是窗口本身：窗口尺寸一动就要跟系统的最小窗口尺寸
     /// 打交道，还要重排落点。
     /// </summary>
-    public double PillWidthDip => State == SessionState.Failed ? double.NaN : NormalPillWidthDip;
+    public double PillWidthDip => State switch
+    {
+        SessionState.Failed => double.NaN,
+        SessionState.Transcribing => TranscribingPillWidthDip,
+        _ => NormalPillWidthDip,
+    };
 
     /// <summary>
     /// 胶囊上显示的那行字。有真消息就用真消息，没有才用套话——失败态那句是唯一带排障线索的
@@ -154,8 +166,8 @@ public sealed partial class OverlayViewModel : ObservableObject
 
     public bool IsVolumeVisible => State == SessionState.Recording;
 
-    /// <summary>只在识别中显示。转写中不显示：进度已写在文字里，再挂一条不确定进度就是两样东西说同一件事。</summary>
-    public bool IsIndeterminate => State == SessionState.Recognizing;
+    /// <summary>识别中与转写中显示。转写的百分比要识别完一段才跳一格，可能十来秒不动，靠这条表明程序还在工作。</summary>
+    public bool IsIndeterminate => State is SessionState.Recognizing or SessionState.Transcribing;
 
     /// <summary>
     /// Idle 与 Paused 时隐藏；其余四态显示。必须在 UI 线程上调。

@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Lisscribe.App.ViewModels;
@@ -326,7 +328,7 @@ public sealed class OverlayWindowStylingTests
     [Fact]
     public void TheFailureNotice_IsAllowedToGrow_SoTheReasonIsReadable()
     {
-        // 定死宽度只管平时那两态。失败态那句是唯一带排障线索的，
+        // 定死宽度只管录音、识别、转写这三态。失败态那句是唯一带排障线索的，
         // 按 132 DIP 画就只剩一串省略号，等于没报错。
         using var scenario = OverlayScenario.Create();
 
@@ -347,11 +349,72 @@ public sealed class OverlayWindowStylingTests
         Assert.True(notice.Width <= OverlayWindow.WidthDip, $"胶囊 {notice.Width} 撑出了窗口 {OverlayWindow.WidthDip}");
     }
 
+    /// <summary>
+    /// 转写态右侧也挂那条不确定进度：百分比要识别完一段才跳一格，可能十来秒不动，看着像卡住。
+    /// <para>
+    /// 挂上之后文字列窄了 33 DIP，最长那句「转写中 100%」不许被截成省略号。判据独立于被测代码：
+    /// 照 <c>MessageText</c> 的字体与字号另排一份不设宽度上限的文字量出它本该多宽，不拿生产常量去算。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheTranscribingPill_ShowsTheIndeterminateBar_AndStillFitsTheLongestProgress()
+    {
+        const string Longest = "转写中 100%";
+
+        using var scenario = OverlayScenario.Create();
+
+        var shortest = PillSizeFor(scenario, SessionState.Transcribing, "转写中 0%");
+
+        var longest = AvaloniaTestHost.Run(() =>
+        {
+            scenario.ViewModel.ApplyState(SessionState.Transcribing, Longest);
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);
+
+            var bar = scenario.Overlay.FindControl<ProgressBar>("IndeterminateBar")!;
+            var text = scenario.Overlay.FindControl<TextBlock>("MessageText")!;
+
+            // 独立量尺：字体与字号是输入，取自 MessageText；宽度上限不设，量出这句话本该占多宽。
+            var ruler = new TextLayout(
+                Longest,
+                new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch),
+                text.FontSize,
+                null);
+
+            return new
+            {
+                Pill = scenario.Overlay.FindControl<Border>("Pill")!.Bounds.Size,
+                BarVisible = bar.IsEffectivelyVisible,
+                Bar = bar.Bounds.Size,
+                Shown = text.Text,
+                Needed = ruler.WidthIncludingTrailingWhitespace,
+                Slot = text.Bounds.Width,
+                Collapsed = text.TextLayout.TextLines.Any(line => line.HasCollapsed),
+            };
+        });
+
+        // 阳性对照：那条进度真的画出来了，且排的确实是最长那句。
+        Assert.True(longest.BarVisible, "转写态没有显示不确定进度条");
+        Assert.True(longest.Bar.Width > 0 && longest.Bar.Height > 0, $"不确定进度条没排出尺寸：{longest.Bar}");
+        Assert.Equal(Longest, longest.Shown);
+
+        // 文字没被截断：文字列放得下这句话的实际宽度，且排版没有折叠出省略号。
+        Assert.True(
+            longest.Slot >= longest.Needed,
+            $"「{Longest}」需 {longest.Needed:F2} DIP，文字列只有 {longest.Slot:F2} DIP，胶囊 {longest.Pill}，折叠 {longest.Collapsed}");
+        Assert.False(longest.Collapsed, $"「{Longest}」被截成了省略号（需 {longest.Needed:F2}，列宽 {longest.Slot:F2}）");
+
+        // 进度每跳一格整颗胶囊不许抖。
+        Assert.Equal(shortest, longest.Pill);
+
+        // 窗口是块 320 DIP 宽的画布，超出去的部分画不出来。
+        Assert.True(longest.Pill.Width <= OverlayWindow.WidthDip, $"胶囊 {longest.Pill.Width} 撑出了窗口 {OverlayWindow.WidthDip}");
+    }
+
     /// <summary>把悬浮条切到某一态，排完版，量胶囊的实际尺寸。</summary>
-    private static Size PillSizeFor(OverlayScenario scenario, SessionState state) =>
+    private static Size PillSizeFor(OverlayScenario scenario, SessionState state, string? message = null) =>
         AvaloniaTestHost.Run(() =>
         {
-            scenario.ViewModel.ApplyState(state, null);
+            scenario.ViewModel.ApplyState(state, message);
 
             // 布局排在 dispatcher 队列上跑，不抽干就会量到上一态的尺寸。
             Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);

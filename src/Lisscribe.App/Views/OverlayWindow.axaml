@@ -76,8 +76,8 @@
                 <Rectangle x:Name="VolumeBar" Width="3" Height="{Binding Bar6Height}" Fill="{Binding BarBrush}" VerticalAlignment="Bottom" RadiusX="1.5" RadiusY="1.5" />
             </StackPanel>
 
-            <!-- 识别中：细一条不确定进度。与柱子同占第 2 列，两者互斥（IsVolumeVisible /
-            IsIndeterminate 都由 State 单独决定，不会同时为真）。
+            <!-- 识别中与转写中：细一条不确定进度。转写的百分比要识别完一段才跳一格，可能十来秒不动，靠它表明程序还在工作。
+            与柱子同占第 2 列，两者互斥（IsVolumeVisible / IsIndeterminate 都由 State 单独决定，不会同时为真）。
 
             **MinWidth="0" 少不得。** Fluent 主题给 ProgressBar 的 MinWidth 是 200，它压过
             这里写的 Width——实测胶囊在识别态被撑到 293 DIP，而录音态只有 117。
