@@ -276,6 +276,90 @@ public sealed class SettingsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task BrowseTranscriptDir_WhenThePickerThrows_ReportsItAndKeepsTheDir()
+    {
+        // 选择框一旦抛异常，不许冒出去（窗口里是 async void，冒出去整个托盘程序退出）。
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.TranscriptDir = _dir;
+
+        var picker = new FakePicker { Throws = new InvalidOperationException("选择框坏了") };
+
+        await vm.BrowseTranscriptDirAsync(picker.PickAsync);
+
+        // 阳性对照：确实走进了选择器，下面的断言才不是空的。
+        Assert.True(picker.WasOpened);
+        Assert.NotNull(vm.LastError);
+        Assert.Contains("无法打开文件夹选择框", vm.LastError);
+        Assert.Contains("选择框坏了", vm.LastError);
+        Assert.Equal(_dir, vm.TranscriptDir);
+    }
+
+    [Fact]
+    public async Task BrowseTranscriptDir_WhenAFolderIsPicked_TakesItsPath_AndClearsTheError()
+    {
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.ApplyRecordedHotkey([], "F2");
+
+        // 阳性对照：先确认确有一条旧错误，下面「被清掉」才有意义。
+        Assert.NotNull(vm.LastError);
+
+        await vm.BrowseTranscriptDirAsync(new FakePicker { PickedPath = @"D:\我的 录音\转写" }.PickAsync);
+
+        Assert.Equal(@"D:\我的 录音\转写", vm.TranscriptDir);
+        Assert.Null(vm.LastError);
+    }
+
+    [Fact]
+    public async Task BrowseTranscriptDir_WhenCancelled_LeavesTheDirAlone()
+    {
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.TranscriptDir = @"D:\原来的";
+
+        var picker = new FakePicker { PickedPath = null };
+
+        await vm.BrowseTranscriptDirAsync(picker.PickAsync);
+
+        // 阳性对照：选择框确实弹过了，「没变」才不是因为根本没走到。
+        Assert.True(picker.WasOpened);
+        Assert.Equal(@"D:\原来的", vm.TranscriptDir);
+    }
+
+    [Fact]
+    public async Task BrowseTranscriptDir_StartsInTheCurrentDir_WhenItExists()
+    {
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.TranscriptDir = $"  {_dir}  ";
+
+        var picker = new FakePicker();
+
+        await vm.BrowseTranscriptDirAsync(picker.PickAsync);
+
+        Assert.Equal(_dir, picker.ReceivedStartDir);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(@"Z:\绝对不存在的\目录")]
+    public async Task BrowseTranscriptDir_PassesNoStartDir_WhenTheCurrentDirDoesNotExist(string current)
+    {
+        var vm = CreateViewModel();
+        vm.Load();
+        vm.TranscriptDir = current;
+
+        var picker = new FakePicker();
+
+        await vm.BrowseTranscriptDirAsync(picker.PickAsync);
+
+        Assert.True(picker.WasOpened);
+        Assert.Null(picker.ReceivedStartDir);
+    }
+
+    [Fact]
     public void TrySave_AcceptsADirectoryThatDoesNotExist()
     {
         // 目录存不存在、能不能写，转写开始时才查；保存不拦。

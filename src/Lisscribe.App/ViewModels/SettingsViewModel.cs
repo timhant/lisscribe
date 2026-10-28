@@ -207,6 +207,36 @@ public sealed partial class SettingsViewModel(
         HotkeyDisplay = combo.ToDisplayString();
     }
 
+    /// <summary>
+    /// 「浏览…」按钮的逻辑：让用户选一个文件夹写进 <see cref="TranscriptDir"/>，取消则不动。
+    /// 选择器是委托（入参为起始目录，当前值不是存在的目录时为 <c>null</c>；返回本地路径，取消为
+    /// <c>null</c>），因为 Avalonia 的 <c>IStorageProvider</c> 带内部成员、用户代码无法实现，换成
+    /// 委托才测得到。窗口里的点击处理是 <c>async void</c>，异常冒出去会让整个托盘程序退出，
+    /// 故这里全部接住，记进 <see cref="LastError"/>。成功选中时清掉旧错误，做法同
+    /// <see cref="ApplyRecordedHotkey"/>。
+    /// </summary>
+    public async Task BrowseTranscriptDirAsync(Func<string?, Task<string?>> pickFolder)
+    {
+        try
+        {
+            var current = TranscriptDir.Trim();
+
+            var picked = await pickFolder(Directory.Exists(current) ? current : null);
+
+            if (picked is null)
+            {
+                return;
+            }
+
+            LastError = null;
+            TranscriptDir = picked;
+        }
+        catch (Exception ex)
+        {
+            LastError = $"无法打开文件夹选择框：{ex.Message}";
+        }
+    }
+
     public bool TrySave(out string? error)
     {
         var candidate = _config with

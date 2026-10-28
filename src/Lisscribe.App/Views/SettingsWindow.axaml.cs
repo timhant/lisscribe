@@ -78,14 +78,19 @@ public sealed partial class SettingsWindow : Window
 
     private void OnCancelClicked(object? sender, RoutedEventArgs e) => Close();
 
-    /// <summary>弹出文件夹选择框；选中则写回转写目录，取消则不动。</summary>
-    private async void OnBrowseTranscriptDirClicked(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// 点「浏览…」：逻辑与异常处理都在 ViewModel 里。这里是 <c>async void</c>，
+    /// 内部抛出的异常会让托盘程序退出，故不在此加任何会抛的代码。
+    /// </summary>
+    private async void OnBrowseTranscriptDirClicked(object? sender, RoutedEventArgs e) =>
+        await _viewModel.BrowseTranscriptDirAsync(PickFolderAsync);
+
+    /// <summary>系统文件夹选择框的薄适配：起始目录进、选中的本地路径出，取消返回 <c>null</c>。</summary>
+    private async Task<string?> PickFolderAsync(string? startDir)
     {
         var storage = TopLevel.GetTopLevel(this)!.StorageProvider;
 
-        // 当前值是存在的目录才当起始位置，否则交给系统默认。
-        var current = _viewModel.TranscriptDir.Trim();
-        var start = Directory.Exists(current) ? await storage.TryGetFolderFromPathAsync(current) : null;
+        var start = startDir is null ? null : await storage.TryGetFolderFromPathAsync(startDir);
 
         var picked = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
@@ -94,12 +99,7 @@ public sealed partial class SettingsWindow : Window
             SuggestedStartLocation = start,
         });
 
-        var path = picked.Count > 0 ? picked[0].TryGetLocalPath() : null;
-
-        if (path is not null)
-        {
-            _viewModel.TranscriptDir = path;
-        }
+        return picked.Count > 0 ? picked[0].TryGetLocalPath() : null;
     }
 
     /// <summary>预览器专用：什么也不做的自启动实现，绝不去碰真注册表。</summary>
