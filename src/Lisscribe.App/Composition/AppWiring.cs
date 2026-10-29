@@ -48,7 +48,9 @@ public sealed class AppWiring : IDisposable
     /// </summary>
     private (SessionState State, string? Message) _lastStatus = (SessionState.Idle, null);
 
-    /// <summary>最近一次 <see cref="ShowNotice"/> 上屏的文案。只在 UI 线程上读写，理由同上。</summary>
+    /// <summary>
+    /// 本类亲手上屏、此刻仍在屏上的那条通知的文案，被状态顶掉或到点收场即清空。只在 UI 线程上读写，理由同上。
+    /// </summary>
     private string? _lastNotice;
 
     /// <param name="postToUi">
@@ -165,6 +167,9 @@ public sealed class AppWiring : IDisposable
                     // 比的是本条的文案而不是 _lastNotice：已投递出去的上一条计时器若晚到，不许把新通知当成自己的收场。
                     if (IsShowingNotice(message))
                     {
+                        // 清空也只在收场时做：晚到的旧计时器不许抹掉新通知的记录。
+                        _lastNotice = null;
+
                         _overlay.ApplyState(_lastStatus.State, _lastStatus.Message);
                     }
                 }),
@@ -178,7 +183,7 @@ public sealed class AppWiring : IDisposable
     /// 悬浮条此刻显示的是不是这条通知。只在 UI 线程上调。
     /// 文案那半少不得：只看 Failed 的话，状态机自己的红条（例如转写失败）也被当成通知，其后的进度就被压住。
     /// </summary>
-    private bool IsShowingNotice(string? notice) =>
+    private bool IsShowingNotice(string notice) =>
         _overlay.State == SessionState.Failed && _overlay.Message == notice;
 
     /// <summary>
@@ -192,10 +197,13 @@ public sealed class AppWiring : IDisposable
             // 先记后判：被压住的那条也得记下，通知到点后回到的正是它。
             _lastStatus = (e.State, e.Message);
 
-            if (e.State == SessionState.Transcribing && IsShowingNotice(_lastNotice))
+            if (e.State == SessionState.Transcribing && _lastNotice is not null && IsShowingNotice(_lastNotice))
             {
                 return;
             }
+
+            // 通知被顶掉了，记录随之作废：留着的话，状态机日后一条一字不差的红条会被认成它，其后的进度全被压住。
+            _lastNotice = null;
 
             _overlay.ApplyState(e.State, e.Message);
         });

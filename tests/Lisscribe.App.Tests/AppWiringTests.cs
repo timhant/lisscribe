@@ -49,6 +49,8 @@ public sealed class AppWiringTests : IAsyncDisposable
 
     private readonly DeferredPoster _poster = new();
 
+    private readonly TrayIconHost _tray;
+
     private readonly AppWiring _wiring;
 
     public AppWiringTests()
@@ -61,7 +63,7 @@ public sealed class AppWiringTests : IAsyncDisposable
             _hook, _capture, _engine, _injector, _probe, _monitor,
             SessionOptions.CreateDefault(), _time, NullLogger<SessionController>.Instance);
 
-        var tray = new TrayIconHost(
+        _tray = new TrayIconHost(
             pause: () => { },
             resume: () => { },
             openSettings: () => { },
@@ -73,7 +75,7 @@ public sealed class AppWiringTests : IAsyncDisposable
 
         // 通知时长与状态机那条失败提示同源，用同一个假时钟推。
         _wiring = new AppWiring(
-            _controller, _overlay, tray, _poster.Post,
+            _controller, _overlay, _tray, _poster.Post,
             _time, SessionOptions.CreateDefault().FailedDisplayDuration);
 
         _controller.Start(new HotkeyCombination(ModifierKeys.Ctrl | ModifierKeys.Alt, "Space"));
@@ -81,6 +83,9 @@ public sealed class AppWiringTests : IAsyncDisposable
 
     /// <summary>转写中途最可能弹出的那类通知：关配置窗时热键重装失败。</summary>
     private const string HotkeyReinstallFailed = "热键重装失败：Ctrl+Alt+Space 已被别的程序占用";
+
+    /// <summary>通知与状态机的失败一字不差时用的文案。文案不同的话，比文案那一步独自就分得开两者，测不出通知的记录清没清。</summary>
+    private const string SameWords = "转写失败：磁盘已满";
 
     private static TimeSpan NoticeDuration => SessionOptions.CreateDefault().FailedDisplayDuration;
 
@@ -450,6 +455,139 @@ public sealed class AppWiringTests : IAsyncDisposable
         Assert.Equal("转写中 0%", _overlay.Message);
     }
 
+    /// <summary>
+    /// **到点收场的通知不再算「正在显示」。** 通知隐去之后，状态机报出一条一字不差的失败，用户趁红条还亮着开始新一轮转写：
+    /// 进度必须当场上屏。旧通知的文案若一直留着，状态机的红条就被认成那条通知，每一条进度都被压住，
+    /// 又没有通知计时器来放行，一直看不见到转写结束。
+    /// </summary>
+    [Fact]
+    public void ANoticeThatHasTimedOut_DoesNotHoldOffTheProgress_BehindTheControllersRedBarInTheSameWords()
+    {
+        _wiring.Connect();
+
+        _wiring.ShowNotice(SameWords);
+        _poster.Drain();
+
+        _time.Advance(NoticeDuration);
+        _poster.Drain();
+
+        // 阳性对照：通知确实已经到点收场。
+        Assert.False(_overlay.IsVisible);
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _controller.EndTranscription(SameWords);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal(SameWords, _overlay.Message);
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _controller.ReportTranscriptionProgress(5);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 5%", _overlay.Message);
+    }
+
+    /// <summary>
+    /// **被状态迁移顶掉的通知同样不再算「正在显示」。** 通知还在屏上时状态机报出一字不差的失败，把它顶掉。
+    /// 用户接着开始新一轮转写，进度必须当场上屏，不许等那条已被顶掉的通知的计时器来放行。
+    /// </summary>
+    [Fact]
+    public void ANoticeDisplacedByTheControllersRedBarInTheSameWords_DoesNotHoldOffTheNextProgress()
+    {
+        _wiring.Connect();
+
+        _wiring.ShowNotice(SameWords);
+        _poster.Drain();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _controller.EndTranscription(SameWords);
+        _poster.Drain();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _controller.ReportTranscriptionProgress(5);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 5%", _overlay.Message);
+    }
+
+    /// <summary>
+    /// 通知盖在状态机一字不差的红条上，又先于状态机的失败计时器到点：收场回到的仍是那条红条，
+    /// 而通知的记录必须随收场清掉，否则接下来那轮转写的进度又被当成「通知期间」压住。
+    ///
+    /// <para>
+    /// <b>通知时长须短于状态机的失败提示。</b>生产两者同长，状态机的计时器先到点、先把红条换成静止态，
+    /// 收场那一处清理轮不到出场；时长短一半，它才是唯一的防线。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ANoticeHandingBackToTheControllersRedBarInTheSameWords_NoLongerHoldsOffTheNextProgress()
+    {
+        using var wiring = new AppWiring(
+            _controller, _overlay, _tray, _poster.Post, _time, NoticeDuration / 2);
+        wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _controller.EndTranscription(SameWords);
+        _poster.Drain();
+
+        wiring.ShowNotice(SameWords);
+        _poster.Drain();
+
+        _time.Advance(NoticeDuration / 2);
+        _poster.Drain();
+
+        // 状态机的红条还没到点，收场回到的正是它。
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal(SameWords, _overlay.Message);
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _controller.ReportTranscriptionProgress(5);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 5%", _overlay.Message);
+    }
+
+    /// <summary>
+    /// 上一条通知的计时器恰在新通知投递之后、被掐之前到点（计时器线程与调用方并发）：它的收场闭包排在新通知之后跑，
+    /// 此刻屏上已是新通知，它既不许收场，也不许抹掉新通知的记录，否则下一条进度当场把新通知顶掉。
+    ///
+    /// <para>
+    /// <b>两条文案必须不同</b>：相同的话，迟到的闭包认得出屏上那条「是自己」，照规矩就该收场，要验的东西就没了。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ALateTimerOfThePreviousNotice_DoesNotForgetTheNoticeNowOnScreen()
+    {
+        _wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        _wiring.ShowNotice("识别引擎加载失败：模型文件缺失");
+        _poster.Drain();
+
+        _time.Advance(NoticeDuration - TimeSpan.FromMilliseconds(1));
+
+        // 新通知一投递，上一条的计时器就到点。
+        _poster.AfterNextPost = () => _time.Advance(TimeSpan.FromMilliseconds(1));
+
+        _wiring.ShowNotice(HotkeyReinstallFailed);
+
+        // 阳性对照：新通知与上一条的收场闭包都排上了队，新通知在前。
+        Assert.Equal(2, _poster.Drain());
+        Assert.Equal(HotkeyReinstallFailed, _overlay.Message);
+
+        _controller.ReportTranscriptionProgress(35);
+        _poster.Drain();
+
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal(HotkeyReinstallFailed, _overlay.Message);
+    }
+
     private async Task WaitForControllerAsync(SessionState expected, int timeoutMs = 3000)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
@@ -490,13 +628,24 @@ public sealed class AppWiringTests : IAsyncDisposable
 
         private int _postCount;
 
+        /// <summary>下一次收下活儿之后顺手跑一次的动作，用来把别的线程恰在此刻发生的事（例如计时器到点）摆进同一条时间线。</summary>
+        public Action? AfterNextPost { get; set; }
+
         public void Post(Action action)
         {
+            Action? afterPost;
+
             lock (_gate)
             {
                 _pending.Add(action);
                 _postCount++;
+
+                afterPost = AfterNextPost;
+                AfterNextPost = null;
             }
+
+            // 出了锁再跑：它多半会再投递一次。
+            afterPost?.Invoke();
         }
 
         /// <summary>把攒下的活儿依次跑掉，返回跑了几条。</summary>
