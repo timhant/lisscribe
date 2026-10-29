@@ -32,6 +32,11 @@ jobs:
       #                      占着时它们固定红，且互相之间也会抢（本机实测「整解决方案一起跑
       #                      偶发整批红，按项目分两次跑才稳」）。
       #   Benchmark       —— 性能取数，一次三分多钟，而 runner 的性能波动大到那组数没有意义。
+      #
+      # RequiresMediaFoundation **不排除**：音频解码器测试要系统的 Media Foundation 解码，还要现场
+      # 用它编出 m4a / mp3。Windows Server 上它是可选功能，但 runner 镜像带着——2026-10-29 实测
+      # `windows-2025-vs2026`（20261021.278.1）上这批测试全部真跑、全过，无一 Skip。哪天镜像不带了，
+      # 这一步会红在解码器测试上，那时再加一步装 Server-Media-Foundation，别直接排除了事。
       - name: Test (deterministic)
         run: >
           dotnet test lisscribe.sln --no-build --configuration Release
