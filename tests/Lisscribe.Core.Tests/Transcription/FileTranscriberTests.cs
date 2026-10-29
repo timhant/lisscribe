@@ -289,6 +289,67 @@ public sealed class FileTranscriberTests : IDisposable
         Assert.Equal(1, _engine.RecognizeCallCount);
         Assert.Equal([$"[00:00:00] {looping}"], Lines());
         Assert.Equal(1, _logger.CountOf(LogLevel.Warning));
+
+        // 没切就不记「一分为二」：Information 只有收尾那一条。
+        Assert.Equal(1, _logger.CountOf(LogLevel.Information));
+    }
+
+    [Fact]
+    public async Task ALoopingSegment_WhenSplit_LogsOneInformationWithItsStartCutAndLength()
+    {
+        _engine.Script = n => n switch
+        {
+            2 => Loop("没有，", 25),
+            _ => $"第{n}段",
+        };
+        var decoder = new FakeAudioFileDecoder(ToneWithSilenceAt13s(45));
+
+        await RunAsync(decoder);
+
+        // 手算见 ALoopingSegment_IsSplitInTwo_AndTheHalvesReplaceIt：起点 209600、切点 209600 + 55466 = 265066 个样本，
+        // 即 13.1s 与 16.566625s。段长 161600 个样本，即 10.10s。Debug 行里也有起点，故只数 Information。
+        var split = _logger.Entries.Where(e =>
+            e.Level == LogLevel.Information
+            && e.Message.Contains("00:00:13.1000000", StringComparison.Ordinal)
+            && e.Message.Contains("00:00:16.5666250", StringComparison.Ordinal));
+
+        Assert.Contains("10.10s", Assert.Single(split).Message, StringComparison.Ordinal);
+
+        // 收尾一条加上这一条，别无其它。
+        Assert.Equal(2, _logger.CountOf(LogLevel.Information));
+    }
+
+    [Fact]
+    public async Task SegmentsNotJudgedLooping_LogNoSplit()
+    {
+        _engine.Script = n => $"第{n}段";
+        var decoder = new FakeAudioFileDecoder(ToneWithSilenceAt13s(45));
+
+        await RunAsync(decoder);
+
+        // 阳性对照：四段都识别过，每段一条 Debug。Information 只有收尾那一条。
+        Assert.Equal(4, _engine.RecognizeCallCount);
+        Assert.Equal(4, _logger.CountOf(LogLevel.Debug));
+        Assert.Equal(1, _logger.CountOf(LogLevel.Information));
+    }
+
+    [Fact]
+    public async Task TheSplitLog_NeverContainsTheRecognizedText()
+    {
+        // 「鸮鹬」不在任何日志模板与本文件别处：日志里一旦出现，只能是把识别出的文字写了进去。
+        _engine.Script = n => n switch
+        {
+            2 => Loop("鸮鹬，", 25),
+            _ => $"第{n}段",
+        };
+        var decoder = new FakeAudioFileDecoder(ToneWithSilenceAt13s(45));
+
+        await RunAsync(decoder);
+
+        // 阳性对照：这一段确实判为循环并一分为二，记了那条 Information。
+        Assert.Equal(6, _engine.RecognizeCallCount);
+        Assert.Equal(2, _logger.CountOf(LogLevel.Information));
+        Assert.DoesNotContain(_logger.Entries, e => e.Message.Contains("鸮鹬", StringComparison.Ordinal));
     }
 
     // ───────────── 进度 ─────────────

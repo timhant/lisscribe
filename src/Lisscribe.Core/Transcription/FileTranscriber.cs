@@ -227,6 +227,12 @@ public sealed class FileTranscriber
         }
 
         var cut = TranscriptChunker.FindCut(segment.Span, searchStart, searchEnd);
+
+        // 留痕只记时间与时长，不记识别出的文字，事后才知道哪几行是重试出来的。
+        _logger.LogInformation(
+            "起点 {Start} 的一段判为复读循环，在 {Cut} 处一分为二重识别，这一段长 {Seconds:F2}s",
+            ToTime(start), ToTime(start + cut), (double)segment.Length / TranscriptChunker.SampleRate);
+
         var first = Recognize(segment[..cut], cancellationToken);
         var second = Recognize(segment[cut..], cancellationToken);
 
