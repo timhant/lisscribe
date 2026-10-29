@@ -68,6 +68,9 @@ public sealed class AppServices : IAsyncDisposable
 
     public AppServices(string baseDirectory, Action requestExit)
     {
+        // 清理残留 .part 的截止时刻：早于托盘装配，也就早于任何转写开工，新写的 .part 都晚于它。
+        var startedAt = TimeProvider.System.GetUtcNow();
+
         LogDirectory = Path.Combine(baseDirectory, "logs");
         Directory.CreateDirectory(LogDirectory);
 
@@ -100,6 +103,10 @@ public sealed class AppServices : IAsyncDisposable
             _logger.LogWarning("配置有 {Count} 处不合规，已按默认值规范化：{Errors}",
                 loaded.Errors.Count, string.Join("；", loaded.Errors));
         }
+
+        // 上次退出时没停下的转写会留下 .part。后台清，不等它：保存目录可能在断开的网络盘上。
+        _ = new LeftoverPartCleaner(_loggerFactory.CreateLogger<LeftoverPartCleaner>())
+            .CleanInBackground(_config.Transcription?.OutputDir, baseDirectory, startedAt);
 
         _probe = new WindowProbe(_loggerFactory.CreateLogger<WindowProbe>());
         _hook = new KeyboardHook(_loggerFactory.CreateLogger<KeyboardHook>());
