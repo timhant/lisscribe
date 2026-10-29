@@ -13,7 +13,7 @@
     <Product>lisscribe</Product>
     <Authors>Hant</Authors>
     <Copyright>Copyright (c) 2026 Hant</Copyright>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
 
     <!-- 构建产物统一落到仓库根的 build\ 下，一个项目一间：build\<项目名>\<配置>\。
          为什么非挪不可：默认的 bin\Debug\net10.0-windows\win-x64 与仓库根的 models\ 隔着四层，

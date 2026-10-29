@@ -84,8 +84,7 @@ will ask.
 
 ## Transcribing a recording
 
-**Added after 0.3.0** — the 0.3.0 downloads don't have it yet. To use it now,
-[build from source](#build-from-source).
+**New in 0.4.0.**
 
 Right-click the tray icon → **转写音频文件…** (Transcribe audio file…) and pick a file. Lisscribe
 cuts the recording into 10–20 s pieces at its quietest moments, recognises each piece and writes a
@@ -218,7 +217,7 @@ zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODE
 
 ## 转写录音文件
 
-**0.3.0 之后新增**，0.3.0 的包里还没有。现在就想用，请「[从源码跑](#从源码跑)」。
+**0.4.0 新增。**
 
 右键托盘图标 →「转写音频文件…」，选一个文件。程序在录音最安静的地方把它切成 10–20 秒的小段，
 逐段识别，写成一个 txt：每段一行，行首是这一段在录音里的时间。
