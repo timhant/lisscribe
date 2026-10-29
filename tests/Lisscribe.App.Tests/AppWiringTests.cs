@@ -332,6 +332,64 @@ public sealed class AppWiringTests : IAsyncDisposable
     }
 
     /// <summary>
+    /// 收尾之后才来的通知一次也不许投递，也不许起计时器。
+    /// 判据是投递次数而不只是悬浮条：闭包里那道拦截也能让悬浮条不变，只看悬浮条的话开头那道检查删了照样绿。
+    /// </summary>
+    [Fact]
+    public void ANoticeArrivingAfterDispose_PostsNothing_AndArmsNoTimer()
+    {
+        _wiring.Dispose();
+
+        _wiring.ShowNotice("识别引擎加载失败：模型文件缺失");
+
+        Assert.Equal(0, _poster.PostCount);
+        Assert.Equal(0, _poster.Drain());
+
+        _time.Advance(NoticeDuration * 2);
+
+        Assert.Equal(0, _poster.PostCount);
+        Assert.Equal(SessionState.Idle, _overlay.State);
+        Assert.False(_overlay.IsVisible);
+    }
+
+    /// <summary>通知已投递、UI 线程还没跑到它时收了尾：闭包跑起来时不许再改悬浮条。</summary>
+    [Fact]
+    public void ANoticePostedJustBeforeDispose_LeavesTheOverlayAlone_WhenTheUiThreadGetsToItAfterwards()
+    {
+        _wiring.ShowNotice("识别引擎加载失败：模型文件缺失");
+
+        _wiring.Dispose();
+
+        // 阳性对照：闭包确实跑了，是它自己没动手，不是压根没排上队。
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(SessionState.Idle, _overlay.State);
+        Assert.False(_overlay.IsVisible);
+    }
+
+    /// <summary>
+    /// 计时器已到点、收场闭包已投递，UI 线程还没跑到它时收了尾：闭包跑起来时同样不许再改悬浮条。
+    /// 上面那条只管计时器还没到点的情形，掐计时器管不到已经投出去的闭包。
+    /// </summary>
+    [Fact]
+    public void ANoticeTimerThatFiredJustBeforeDispose_LeavesTheOverlayAlone_WhenTheUiThreadGetsToItAfterwards()
+    {
+        _wiring.ShowNotice("识别引擎加载失败：模型文件缺失");
+        _poster.Drain();
+
+        _time.Advance(NoticeDuration);
+
+        _wiring.Dispose();
+
+        // 阳性对照：收场闭包确实跑了。
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(SessionState.Failed, _overlay.State);
+        Assert.Equal("识别引擎加载失败：模型文件缺失", _overlay.Message);
+        Assert.True(_overlay.IsVisible);
+    }
+
+    /// <summary>
     /// **转写中弹的通知，到点后要回到转写进度，不能回到空闲。** 转写一跑几分钟，期间任何一条通知
     /// （例如关配置窗时热键重装失败）过几秒就把悬浮条整个藏掉的话，转写还在跑，进度从此看不见。
     ///

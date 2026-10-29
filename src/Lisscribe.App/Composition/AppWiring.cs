@@ -35,7 +35,9 @@ public sealed class AppWiring : IDisposable
 
     private readonly TimeSpan _noticeDuration;
 
-    /// <summary>只护住 <see cref="_noticeTimer"/> 与 <see cref="_disposed"/> 两个字段。</summary>
+    /// <summary>
+    /// 只护住 <see cref="_noticeTimer"/> 与 <see cref="_disposed"/> 两个字段，UI 线程上的闭包读 <see cref="_disposed"/> 也进它。
+    /// </summary>
     private readonly Lock _noticeGate = new();
 
     private ITimer? _noticeTimer;
@@ -142,19 +144,26 @@ public sealed class AppWiring : IDisposable
     /// </remarks>
     public void ShowNotice(string message)
     {
-        _postToUi(() =>
-        {
-            _lastNotice = message;
-
-            _overlay.ApplyState(SessionState.Failed, message);
-        });
-
         lock (_noticeGate)
         {
+            // 先查再投：收尾之后 Avalonia 要拆平台层，投过去的活儿会同步驱动窗口显隐。
             if (_disposed)
             {
                 return;
             }
+
+            _postToUi(() =>
+            {
+                // 收尾可能落在投递之后、执行之前。
+                if (IsDisposed())
+                {
+                    return;
+                }
+
+                _lastNotice = message;
+
+                _overlay.ApplyState(SessionState.Failed, message);
+            });
 
             // 先掐上一条。别以为下面那道 Message 相等的判断顶得了这件事：两条文案不同时它确实顶得了，
             // 而文案相同时（同一句「识别引擎加载失败：…」重复出现是常事）第一条的计时器一到点就把第
@@ -164,6 +173,12 @@ public sealed class AppWiring : IDisposable
             _noticeTimer = _time.CreateTimer(
                 _ => _postToUi(() =>
                 {
+                    // 到点之后、执行之前收了尾的话，掐计时器管不到这个已投出去的闭包。
+                    if (IsDisposed())
+                    {
+                        return;
+                    }
+
                     // 比的是本条的文案而不是 _lastNotice：已投递出去的上一条计时器若晚到，不许把新通知当成自己的收场。
                     if (IsShowingNotice(message))
                     {
@@ -176,6 +191,15 @@ public sealed class AppWiring : IDisposable
                 state: null,
                 dueTime: _noticeDuration,
                 period: Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>收过尾没有。投递出去的闭包在 UI 线程上读它，故进锁。</summary>
+    private bool IsDisposed()
+    {
+        lock (_noticeGate)
+        {
+            return _disposed;
         }
     }
 
