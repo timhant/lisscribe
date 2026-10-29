@@ -12,9 +12,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -49,14 +49,14 @@ jobs:
       # 相关测试会自行 Skip（Assert.SkipUnless(ModelFixture.IsAvailable, ...)）。
       - name: Cache SenseVoice model
         id: sense-voice-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: models/sense-voice
           key: sense-voice-int8-2024-07-17-v1
 
       - name: Cache Qwen3-ASR model
         id: qwen3-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: models/qwen3-asr
           key: qwen3-asr-0.6B-int8-2026-03-25-v1
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: '**/*.trx'
