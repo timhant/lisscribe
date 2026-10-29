@@ -21,14 +21,20 @@ You are typing in any app — an editor, a chat box, a terminal, a browser form.
 
 That's the whole interaction. Lisscribe sits in the tray and does nothing until you press the key.
 
+It can also turn a recording file — a meeting you recorded on your phone, say — into a text file
+with timestamps. See [Transcribing a recording](#transcribing-a-recording).
+
 ## Why you might want this one
 
 - **It never talks to the network.** Recognition runs locally, on the CPU. Once the model is on
   disk, you can unplug the machine and it still works. Nothing you say leaves the computer.
 - **It works in every window**, not just apps that opted into a dictation API — the text goes in
   through synthesised keystrokes (or a clipboard paste, your choice).
-- **Nothing is written down.** Audio is never saved. Recognised text is never written to disk or
-  into the log — the log records how many characters landed, never what they were.
+- **Nothing is written down unless you ask for it.** Audio is never saved. Dictated text is never
+  written to disk or into the log — the log records how many characters landed, never what they
+  were. The only text that reaches the disk is a transcript you ask for (see
+  [Transcribing a recording](#transcribing-a-recording)); even then the log records the file name,
+  where it was saved and a character count, not the text.
 - **Good with Chinese**, including Cantonese and mixed Chinese/English, depending on which model
   tier you pick. English works too.
 - **No .NET install needed.** The runtime ships inside the zip.
@@ -51,8 +57,9 @@ Then:
 2. Run `Lisscribe.App.exe`
 3. Hold `Ctrl + Alt + Space`, talk, release
 
-It lives in the tray. Right-click for settings, to pause the hotkey, or to open the log and model
-folders. Hotkey, text-delivery method and recording limit are all configurable.
+It lives in the tray. Right-click for settings, to pause the hotkey, to transcribe a recording
+file, or to open the log and model folders. Hotkey, text-delivery method, recording limit and
+where transcripts are saved are all configurable.
 
 The bundled weights keep their own licences, which are **not** this project's MIT — one of them is
 not an open-source licence at all. Full texts ship inside those zips; see [Licence](#licence).
@@ -62,8 +69,9 @@ not an open-source licence at all. Full texts ship inside those zips; see [Licen
 |                                    | SenseVoice (default) | Qwen3-ASR 0.6B |
 | ---------------------------------- | -------------------- | -------------- |
 | Download size                      | 229 MB               | 982 MB         |
-| Max length of one recording        | 60 s                 | 25 s           |
+| Max length of one hotkey recording | 60 s                 | 25 s           |
 | Time to text, for a 5-second phrase | ~0.3 s               | ~3 s           |
+| Transcribing a 1 h 49 min recording | ~3.5 min            | ~21 min        |
 | Chinese numerals                   | "早上9点", built into the model | "早上9点", converted by Lisscribe, narrower coverage |
 | Cantonese / mixed CN-EN / noisy    | weaker               | stronger       |
 
@@ -73,6 +81,34 @@ To get the high-accuracy tier:
 `powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1 -Engine qwen3`,
 then switch the engine to `Qwen3Asr` in settings. **Switching tiers needs a restart**; the app
 will ask.
+
+## Transcribing a recording
+
+**Added after 0.3.0** — the 0.3.0 downloads don't have it yet. To use it now,
+[build from source](#build-from-source).
+
+Right-click the tray icon → **转写音频文件…** (Transcribe audio file…) and pick a file. Lisscribe
+cuts the recording into 10–20 s pieces at its quietest moments, recognises each piece and writes a
+text file, one line per piece, each line starting with where it is in the recording:
+
+```
+[00:00:00] 大家好，今天我们先过一下上周的进度。
+[00:00:19] 第一件事是……
+```
+
+- **Formats**: m4a, mp3, wav, wma, aac — whatever Windows' built-in Media Foundation can decode.
+  Checked with m4a from a phone's voice recorder, mp3 and wav. Windows **N** editions ship without
+  Media Foundation; install the Media Feature Pack first.
+- **Where it goes**: `transcripts\` next to the exe, or the folder you set under 转写结果保存位置
+  (where transcripts are saved) in settings. The name is `<recording>-<yyyyMMddHHmmss>.txt`, with
+  `-1`, `-2` … added if that name is taken. UTF-8. It opens in your default text editor when done.
+- **While it runs**, the overlay shows progress, the hotkey doesn't record, and the same tray item
+  becomes **取消转写** (Cancel transcription). Cancelling or quitting leaves no half-written file.
+- **How long**: a 1 h 49 min meeting took about 3.5 minutes with SenseVoice and about 21 minutes
+  with Qwen3-ASR, on the same machine as the table above. It uses whichever tier is loaded.
+- **What it doesn't do**: no speaker labels, no subtitles (srt) — plain text only. Passages where
+  someone is far from the microphone, or several people talk at once, come out poorly with either
+  tier; the timestamp tells you where to listen again.
 
 ## Where the models go
 
@@ -126,14 +162,17 @@ zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODE
 
 交互就这些。平时它待在托盘里，不按热键就什么也不做。
 
+它也能把录音文件（比如手机录的一场会议）转成带时间的文字，见下面「[转写录音文件](#转写录音文件)」。
+
 ## 凭什么用它
 
 - **运行期一次网络都不碰。**识别在本机 CPU 上跑，模型落盘之后拔了网线照样能用——
   你说的话不出这台机器。
 - **在任何窗口都能用**，不限于自己接了听写接口的应用：文字是靠合成按键送进去的
   （也可以改走剪贴板粘贴）。
-- **什么都不记下来。**音频从不保存，识别结果既不落盘也不进日志——日志只记这次上了几个字，
-  从不记是哪几个字。
+- **你不要，它就什么都不记下来。**音频从不保存，热键听写的结果既不落盘也不进日志——日志只记
+  这次上了几个字，从不记是哪几个字。唯一会落盘的文字是你自己要的转写稿（见下面「转写录音文件」），
+  这时日志里也只记文件名、存在哪里和字数，不记内容。
 - **中文够用**，粤语与中英混说看你选哪一档模型。英文也认。
 - **不必装 .NET**，运行时已在包里。
 
@@ -155,8 +194,8 @@ zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODE
 2. 双击 `Lisscribe.App.exe`
 3. 按住 `Ctrl + Alt + Space` 说话，松开上屏
 
-程序常驻托盘。右键托盘图标可以打开配置窗、暂停热键、打开日志与模型目录。
-热键、上屏方式、录音时长等都在配置窗里改。
+程序常驻托盘。右键托盘图标可以打开配置窗、转写录音文件、暂停热键、打开日志与模型目录。
+热键、上屏方式、录音时长、转写稿存在哪里，都在配置窗里改。
 
 随包的权重各有各的许可，与本项目的 MIT **不是一回事**，其中一档**根本不是开源许可**。
 许可全文就在那两个包里，另见下面「许可」。
@@ -166,8 +205,9 @@ zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODE
 |                    | SenseVoice（默认） | Qwen3-ASR 0.6B |
 | ------------------ | -------------- | -------------- |
 | 体积                 | 229 MB         | 982 MB         |
-| 单次录音上限             | 60 秒           | 25 秒           |
+| 按住热键一次最长可录         | 60 秒           | 25 秒           |
 | 一句 5 秒的话，多久出字      | 约 0.3 秒        | 约 3 秒          |
+| 转写 1 小时 49 分的录音     | 约 3 分半         | 约 21 分钟        |
 | 中文数字               | 「早上9点」，引擎自带    | 「早上9点」，本程序转，覆盖面窄些 |
 | 粤语 / 中英混说 / 嘈杂环境   | 弱              | 强              |
 
@@ -175,6 +215,29 @@ zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODE
 
 取高精度档：`powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1 -Engine qwen3`，
 然后在配置窗里把识别引擎换成 `Qwen3Asr`。**换档要重启程序**，程序会问你一句。
+
+## 转写录音文件
+
+**0.3.0 之后新增**，0.3.0 的包里还没有。现在就想用，请「[从源码跑](#从源码跑)」。
+
+右键托盘图标 →「转写音频文件…」，选一个文件。程序在录音最安静的地方把它切成 10–20 秒的小段，
+逐段识别，写成一个 txt：每段一行，行首是这一段在录音里的时间。
+
+```
+[00:00:00] 大家好，今天我们先过一下上周的进度。
+[00:00:19] 第一件事是……
+```
+
+- **格式**：m4a、mp3、wav、wma、aac，凡是 Windows 自带的 Media Foundation 能解的都行。实测过手机
+  录音机录的 m4a，以及 mp3、wav。Windows **N 版本**不带 Media Foundation，要先装 Media Feature Pack。
+- **存在哪儿**：默认是 exe 旁边的 `transcripts\`，也可以在配置窗的「转写结果保存位置」里另选目录。
+  文件名是 `录音名-年月日时分秒.txt`，重名时依次加 `-1`、`-2`。UTF-8 编码。转完自动用默认程序打开。
+- **转写期间**：悬浮条显示进度，按热键不录音，托盘那一项变成「取消转写」。取消或退出程序都不会
+  留下半截文件。
+- **要多久**：一场 1 小时 49 分的会议录音，在上表那台机器上，SenseVoice 约 3 分半，Qwen3-ASR 约
+  21 分钟。用的是当前加载的那一档。
+- **不做的事**：不分说话人，不出字幕（srt），只出 txt。说话人离话筒远、几个人同时说话的段落，
+  哪一档都识别得差，可按行首时间回到录音里重听。
 
 ## 模型放哪儿
 
