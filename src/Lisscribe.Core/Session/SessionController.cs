@@ -16,6 +16,9 @@ public sealed class SessionController : IAsyncDisposable
     /// <summary>钩子失效的提示。当场报与转写落地后补报共用这一句，两处各写一份迟早漂移。</summary>
     private const string HookLostMessage = "热键钩子已失效，请重启程序";
 
+    /// <summary>暂停请求挂在会话上、随它带到落地时的告知。撤销暂停时要凭它认出这句，故只写这一份。</summary>
+    private const string PausedHotkeyNotice = "已暂停热键";
+
     private readonly IHotkeyHook _hook;
     private readonly IAudioCapture _capture;
     private readonly IAsrEngine _engine;
@@ -65,6 +68,9 @@ public sealed class SessionController : IAsyncDisposable
     /// 故告知只能挂在会话上、由每次迁移在自己无话可说时沿用。
     /// </summary>
     private string? _sessionNotice;
+
+    /// <summary>暂停告知顶掉的那句会话告知，暂停未落地就被撤销时由 <see cref="Resume"/> 还原。</summary>
+    private string? _noticeBeforePause;
 
     /// <summary>转写中钩子被系统摘除。状态不能离开 Transcribing，提示留到转写落地时再报。</summary>
     private bool _hookLostWhileTranscribing;
@@ -170,9 +176,12 @@ public sealed class SessionController : IAsyncDisposable
             // 而那条线程正回过头来抢本方法持着的 _gate。
             _hook.PassThrough = true;
 
+            // 录音中与在途时这两条路会用暂停告知顶掉现有告知，先记下原来那句，暂停未落地就被撤销时还原。
+            _noticeBeforePause = _sessionNotice;
+
             if (State == SessionState.Recording)
             {
-                FinishRecording(_time.GetUtcNow() - _recordingStartedAt, "已暂停热键");
+                FinishRecording(_time.GetUtcNow() - _recordingStartedAt, PausedHotkeyNotice);
 
                 return;
             }
@@ -180,7 +189,7 @@ public sealed class SessionController : IAsyncDisposable
             if (State is SessionState.Recognizing or SessionState.Transcribing)
             {
                 // 在途识别或转写自己会走到终态，那时 EnterRest 把它落到 Paused。
-                _sessionNotice = "已暂停热键";
+                _sessionNotice = PausedHotkeyNotice;
 
                 return;
             }
@@ -205,6 +214,12 @@ public sealed class SessionController : IAsyncDisposable
                 // 在途会话还没落地就又点了「继续」：撤销意图即可，状态本就不该动
                 // （此刻可能正在识别，改它就是踩掉别人的进度）。
                 _pauseRequested = false;
+
+                // 热键并没有停，暂停告知不许留到落地时的提示里。只认它本身：已被别的事换掉的告知不动。
+                if (_sessionNotice == PausedHotkeyNotice)
+                {
+                    _sessionNotice = _noticeBeforePause;
+                }
 
                 return;
             }

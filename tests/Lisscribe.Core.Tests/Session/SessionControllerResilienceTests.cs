@@ -24,6 +24,9 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
     private readonly SessionController _controller;
 
+    /// <summary>与默认配置的失败提示时长独立取值：这里写死 3 秒，被测代码改了默认值这条会先红。</summary>
+    private static readonly TimeSpan FailedDisplayDuration = TimeSpan.FromSeconds(3);
+
     public SessionControllerResilienceTests()
     {
         // 引擎未加载时热键会被当场拒收，那是另一组的题目，不该让本组每条都栽在它上面。
@@ -64,6 +67,70 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
     {
         Assert.True(_hook.IsMainKeyPhysicallyDown, "调用方必须先 RaisePressed，否则看门狗会抢先结束录音");
         _time.Advance(duration);
+    }
+
+    /// <summary>
+    /// 开始等下一次迁入 <paramref name="expected"/>，须在触发迁移之前调用。
+    /// 只轮询 State 不够：识别线程上 LastMessage 紧随 State 写入，轮询看到新状态时文案可能还是旧的。
+    /// </summary>
+    private Task ExpectTransitionTo(SessionState expected)
+    {
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _controller.StatusChanged += (_, e) =>
+        {
+            if (e.State == expected)
+            {
+                reached.TrySetResult();
+            }
+        };
+
+        return reached.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// 一跳一跳推进假时钟，直到红条到点退场。失败计时器由识别线程在报出 Failed 之后才建，
+    /// 测试线程一次推满可能推在它建好之前，那它就再也等不到点。
+    /// </summary>
+    private void AdvanceUntilFailedDisplayEnds()
+    {
+        var step = SessionOptions.CreateDefault().WatchdogInterval;
+        var budget = FailedDisplayDuration * 2;
+
+        for (var spent = TimeSpan.Zero; _controller.State == SessionState.Failed && spent < budget; spent += step)
+        {
+            _time.Advance(step);
+        }
+    }
+
+    /// <summary>录一段正常长度的话送去识别，并让识别挂在返回的闸门上，供「识别在途时暂停」类用例做前置。</summary>
+    private async Task<TaskCompletionSource> StartParkedRecognitionAsync()
+    {
+        var gate = _engine.Gate = new TaskCompletionSource();
+        _hook.RaisePressed();
+        _capture.PushSeconds(1.0);
+        _hook.RaiseReleased(TimeSpan.FromMilliseconds(800));
+
+        await WaitForStateAsync(SessionState.Recognizing);
+
+        return gate;
+    }
+
+    /// <summary>录音中换了设备、带着「录音设备已变更」进识别，并让识别挂在返回的闸门上。</summary>
+    private TaskCompletionSource StartParkedRecognitionAfterDeviceChange()
+    {
+        var gate = _engine.Gate = new TaskCompletionSource();
+        _hook.RaisePressed();
+        _capture.PushSeconds(1.5);
+        HoldFor(TimeSpan.FromMilliseconds(800));
+
+        _capture.RaiseDefaultDeviceChanged("新耳机");
+
+        // 阳性对照：会话上确实挂着这句告知，否则后面「它还在」的断言什么也没证明。
+        Assert.Equal(SessionState.Recognizing, _controller.State);
+        Assert.Equal("录音设备已变更", _controller.LastMessage);
+
+        return gate;
     }
 
     [Fact]
@@ -177,6 +244,145 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
         _hook.RaisePressed();
 
         Assert.Equal(SessionState.Recording, _controller.State);
+    }
+
+    /// <summary>识别在途时暂停又继续：热键其实没停，「已暂停热键」不许留到落地后的 Idle 上。</summary>
+    [Fact]
+    public async Task PauseThenResume_WhileRecognizing_SuccessLandsInIdleWithoutThePauseNotice()
+    {
+        var gate = await StartParkedRecognitionAsync();
+
+        _controller.Pause();
+        _controller.Resume();
+
+        var idle = ExpectTransitionTo(SessionState.Idle);
+        gate.SetResult();
+        await idle;
+
+        Assert.Null(_controller.LastMessage);
+    }
+
+    /// <summary>同上，识别失败那一路：红条只说失败原因，到点回到的 Idle 上也不许有暂停告知。</summary>
+    [Fact]
+    public async Task PauseThenResume_WhileRecognizing_FailureShowsOnlyTheReason_AndIdleCarriesNoPauseNotice()
+    {
+        _engine.NextException = new InvalidOperationException("模型炸了");
+        var gate = await StartParkedRecognitionAsync();
+
+        _controller.Pause();
+        _controller.Resume();
+
+        var failed = ExpectTransitionTo(SessionState.Failed);
+        gate.SetResult();
+        await failed;
+
+        Assert.Equal("识别失败，详见日志", _controller.LastMessage);
+
+        var idle = ExpectTransitionTo(SessionState.Idle);
+        AdvanceUntilFailedDisplayEnds();
+        await idle;
+
+        Assert.Null(_controller.LastMessage);
+    }
+
+    /// <summary>暂停之前会话上已挂着的告知（这里是录音设备已变更），不许因「暂停 → 继续」而丢掉。</summary>
+    [Fact]
+    public async Task PauseThenResume_WhileRecognizing_KeepsTheNoticeFromBeforeThePause()
+    {
+        var gate = StartParkedRecognitionAfterDeviceChange();
+
+        _controller.Pause();
+        _controller.Resume();
+
+        var idle = ExpectTransitionTo(SessionState.Idle);
+        gate.SetResult();
+        await idle;
+
+        Assert.Equal("录音设备已变更", _controller.LastMessage);
+    }
+
+    /// <summary>同上，识别失败那一路：红条照旧只说失败原因（不暂停时也是如此），到点回到的 Idle 上告知仍在。</summary>
+    [Fact]
+    public async Task PauseThenResume_WhileRecognizing_FailureStillLeavesTheEarlierNoticeOnIdle()
+    {
+        _engine.NextException = new InvalidOperationException("模型炸了");
+        var gate = StartParkedRecognitionAfterDeviceChange();
+
+        _controller.Pause();
+        _controller.Resume();
+
+        var failed = ExpectTransitionTo(SessionState.Failed);
+        gate.SetResult();
+        await failed;
+
+        Assert.Equal("识别失败，详见日志", _controller.LastMessage);
+
+        var idle = ExpectTransitionTo(SessionState.Idle);
+        AdvanceUntilFailedDisplayEnds();
+        await idle;
+
+        Assert.Equal("录音设备已变更", _controller.LastMessage);
+    }
+
+    /// <summary>录音中暂停：告知随收尾换成「已暂停热键」再送去识别。识别落地前点「继续」，Idle 上同样不许留着它。</summary>
+    [Fact]
+    public async Task PauseThenResume_WhileRecording_LandsInIdleWithoutThePauseNotice()
+    {
+        var gate = _engine.Gate = new TaskCompletionSource();
+        _hook.RaisePressed();
+        _capture.PushSeconds(1.0);
+        HoldFor(TimeSpan.FromMilliseconds(800));
+
+        _controller.Pause();
+
+        // 阳性对照：暂停已把会话收尾送去识别，告知也已挂上。
+        Assert.Equal(SessionState.Recognizing, _controller.State);
+        Assert.Equal("已暂停热键", _controller.LastMessage);
+
+        _controller.Resume();
+
+        var idle = ExpectTransitionTo(SessionState.Idle);
+        gate.SetResult();
+        await idle;
+
+        Assert.Null(_controller.LastMessage);
+    }
+
+    /// <summary>对照：识别中暂停而不继续，落地后进 Paused，告知照旧是「已暂停热键」。</summary>
+    [Fact]
+    public async Task Pause_WhileRecognizing_WithoutResume_LandsInPausedSayingSo()
+    {
+        var gate = await StartParkedRecognitionAsync();
+
+        _controller.Pause();
+
+        var paused = ExpectTransitionTo(SessionState.Paused);
+        gate.SetResult();
+        await paused;
+
+        Assert.Equal("已暂停热键", _controller.LastMessage);
+    }
+
+    /// <summary>对照，识别失败那一路：红条只说失败原因，到点落到 Paused，告知照旧是「已暂停热键」。</summary>
+    [Fact]
+    public async Task Pause_WhileRecognizing_WithoutResume_FailureShowsTheReason_ThenPausedSayingSo()
+    {
+        _engine.NextException = new InvalidOperationException("模型炸了");
+        var gate = await StartParkedRecognitionAsync();
+
+        _controller.Pause();
+
+        var failed = ExpectTransitionTo(SessionState.Failed);
+        gate.SetResult();
+        await failed;
+
+        Assert.Equal("识别失败，详见日志", _controller.LastMessage);
+
+        var paused = ExpectTransitionTo(SessionState.Paused);
+        AdvanceUntilFailedDisplayEnds();
+        await paused;
+
+        Assert.Equal("已暂停热键", _controller.LastMessage);
     }
 
     [Fact]

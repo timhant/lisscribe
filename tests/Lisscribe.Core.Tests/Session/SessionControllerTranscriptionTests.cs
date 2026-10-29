@@ -437,6 +437,64 @@ public sealed class SessionControllerTranscriptionTests : IAsyncDisposable
         Assert.Equal(SessionState.Idle, _controller.State);
     }
 
+    /// <summary>转写中暂停又继续：热键其实没停，「已暂停热键」不许留到转写落地后的 Idle 上。</summary>
+    [Fact]
+    public void PauseThenResume_WhileTranscribing_SuccessLandsInIdleWithoutThePauseNotice()
+    {
+        BeginTranscription();
+        _controller.Pause();
+        _controller.Resume();
+
+        _controller.EndTranscription(failure: null);
+
+        Assert.Equal(SessionState.Idle, _controller.State);
+        Assert.Null(_controller.LastMessage);
+    }
+
+    /// <summary>同上，转写失败那一路：红条只说失败原因，到点回到的 Idle 上也不许有暂停告知。</summary>
+    [Fact]
+    public async Task PauseThenResume_WhileTranscribing_FailureShowsOnlyTheReason_AndIdleCarriesNoPauseNotice()
+    {
+        BeginTranscription();
+        _controller.Pause();
+        _controller.Resume();
+
+        _controller.EndTranscription("无法解码该文件");
+
+        Assert.Equal(SessionState.Failed, _controller.State);
+        Assert.Equal("无法解码该文件", _controller.LastMessage);
+
+        _time.Advance(FailedDisplayDuration);
+
+        await WaitForStateAsync(SessionState.Idle);
+        Assert.Null(_controller.LastMessage);
+    }
+
+    /// <summary>从暂停中开始的转写没挂暂停告知，期间点「继续」不许把更早一次暂停记下的旧告知翻出来。</summary>
+    [Fact]
+    public async Task Resume_DuringATranscriptionStartedFromPaused_DoesNotBringBackAnOlderNotice()
+    {
+        // 先让一次带告知的识别在途时被暂停并落地，留下一句暂停前的旧告知。
+        _engine.Gate = new TaskCompletionSource();
+        _hook.RaisePressed();
+        _capture.PushSeconds(1.5);
+        _time.Advance(TimeSpan.FromMilliseconds(800));
+        _capture.RaiseDefaultDeviceChanged("新耳机");
+        Assert.Equal("录音设备已变更", _controller.LastMessage);
+
+        _controller.Pause();
+        _engine.Gate.SetResult();
+        await WaitForStateAsync(SessionState.Paused);
+
+        BeginTranscription();
+        _controller.Resume();
+
+        _controller.EndTranscription(failure: null);
+
+        Assert.Equal(SessionState.Idle, _controller.State);
+        Assert.Null(_controller.LastMessage);
+    }
+
     [Fact]
     public void SessionLockedOrSuspending_WhileTranscribing_DoesNotInterrupt()
     {
