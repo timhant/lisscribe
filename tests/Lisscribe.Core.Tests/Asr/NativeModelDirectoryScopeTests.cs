@@ -7,6 +7,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// 工作目录变通本身的守卫。整机效果由 <see cref="NonAsciiModelPathTests"/> 钉（那条要真模型），
 /// 本文件钉的是它什么时候动手、动完还不还原。
 /// </summary>
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class NativeModelDirectoryScopeTests
 {
     /// <summary>

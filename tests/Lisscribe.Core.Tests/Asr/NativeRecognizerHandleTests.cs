@@ -32,6 +32,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// 进程照常活着），ORT 一次也碰不到。
 /// </para>
 /// </summary>
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class NativeRecognizerHandleTests
 {
     private static readonly string ModelDir =

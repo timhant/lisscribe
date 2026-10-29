@@ -3,6 +3,7 @@ using Xunit;
 
 namespace Lisscribe.Core.Tests.Asr;
 
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class AsrModelPathsTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("lisscribe-model").FullName;
@@ -88,9 +89,8 @@ public sealed class AsrModelPathsTests : IDisposable
         // 也就是恰好等于 AppContext.BaseDirectory —— 不挪的话，「按 CWD 展开」的实现
         // 一样能让下面那条断言通过，整条测试等于没写。
         //
-        // 改进程级的工作目录本是并行测试里的经典雷，此处敢改是因为查过：
-        // 本测试程序集里再没有第二处读工作目录或用相对路径的代码（含被测的 Core 本身）。
-        // **日后谁加了这类代码，先来看这条注释。**
+        // 改进程级的工作目录本是并行测试里的经典雷，此处敢改是因为本类已归入不并行的
+        // ProcessWorkingDirectoryCollection。**新增改工作目录的测试类也必须标它**，有守卫测试把关。
         var originalWorkingDirectory = Directory.GetCurrentDirectory();
 
         try

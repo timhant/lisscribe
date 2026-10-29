@@ -9,6 +9,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// Qwen3 真模型测试。归入 RequiresModel 分类，与每次 PR 都跑的确定性测试分开。
 /// </summary>
 [Trait("Category", "RequiresModel")]
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class Qwen3AsrEngineTests
 {
     private static AsrSection Config =>

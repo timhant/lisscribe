@@ -10,6 +10,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// 真模型测试。用 Trait 归入 RequiresModel 分类，CI 上与每次 PR 都跑的确定性测试分开。
 /// </summary>
 [Trait("Category", "RequiresModel")]
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class SenseVoiceEngineTests
 {
     private static AsrSection Config => new("SenseVoice", ModelFixture.ModelDir, "cpu");

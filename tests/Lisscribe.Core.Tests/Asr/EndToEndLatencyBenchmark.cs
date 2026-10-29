@@ -24,6 +24,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// </summary>
 [Trait("Category", "RequiresModel")]
 [Trait("Category", "Benchmark")]
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class EndToEndLatencyBenchmark(ITestOutputHelper output)
 {
     /// <summary>定口径那一档（5 秒语音）的采样次数。P95 取第 19 个数，样本再少就没意义了。</summary>

@@ -12,6 +12,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// 会得到一个「模型明明齐了却永远报缺失」的程序。
 /// </para>
 /// </summary>
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class Qwen3ModelPathsTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("lisscribe-qwen3").FullName;

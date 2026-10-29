@@ -29,6 +29,7 @@ namespace Lisscribe.Core.Tests.Asr;
 /// </para>
 /// </summary>
 [Trait("Category", "RequiresModel")]
+[Collection(ProcessWorkingDirectoryCollection.Name)]
 public sealed class NonAsciiModelPathTests : IDisposable
 {
     /// <summary>目录名必须含非 ASCII，否则整条测试测的是别的东西。</summary>
