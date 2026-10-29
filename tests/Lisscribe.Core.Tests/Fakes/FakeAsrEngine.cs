@@ -83,11 +83,14 @@ public sealed class FakeAsrEngine : IAsrEngine
 
         if (Gate is not null)
         {
-            using var registration = cancellationToken.Register(() =>
-            {
-                WasCancelledMidFlight = true;
-                Gate.TrySetCanceled(cancellationToken);
-            });
+            // 不看令牌时闸门也不随取消打开，原生解码就是这样等到底的。
+            using var registration = IgnoreCancellation
+                ? default
+                : cancellationToken.Register(() =>
+                {
+                    WasCancelledMidFlight = true;
+                    Gate.TrySetCanceled(cancellationToken);
+                });
 
             // 取消回调已注册好，此刻才算「真的挂住了」。顺序反了就等于没等。
             _parked.TrySetResult();

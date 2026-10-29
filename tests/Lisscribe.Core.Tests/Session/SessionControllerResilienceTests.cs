@@ -24,6 +24,9 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
     private readonly SessionController _controller;
 
+    private readonly Lock _eventsGate = new();
+    private readonly List<(SessionState State, string? Message)> _events = [];
+
     /// <summary>与默认配置的失败提示时长独立取值：这里写死 3 秒，被测代码改了默认值这条会先红。</summary>
     private static readonly TimeSpan FailedDisplayDuration = TimeSpan.FromSeconds(3);
 
@@ -35,10 +38,28 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
         _controller = new SessionController(
             _hook, _capture, _engine, _injector, _probe, _monitor,
             SessionOptions.CreateDefault(), _time, NullLogger<SessionController>.Instance);
+
+        _controller.StatusChanged += (_, e) =>
+        {
+            lock (_eventsGate)
+            {
+                _events.Add((e.State, e.Message));
+            }
+        };
+
         _controller.Start(new HotkeyCombination(ModifierKeys.Ctrl | ModifierKeys.Alt, "Space"));
     }
 
     public async ValueTask DisposeAsync() => await _controller.ShutdownAsync(TimeSpan.FromSeconds(1));
+
+    /// <summary>StatusChanged 的快照。事件可能在识别工作线程上引发，读写都过同一把锁。</summary>
+    private List<(SessionState State, string? Message)> Events()
+    {
+        lock (_eventsGate)
+        {
+            return [.. _events];
+        }
+    }
 
     /// <summary>轮询等待状态机抵达指定状态。识别在后台任务上跑，无法同步断言。</summary>
     private async Task WaitForStateAsync(SessionState expected, int timeoutMs = 2000)
@@ -114,6 +135,41 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
         await WaitForStateAsync(SessionState.Recognizing);
 
         return gate;
+    }
+
+    /// <summary>同上，但闸门不随取消打开，模拟原生解码中途打断不了。返回时识别已真的挂在闸门上。</summary>
+    private async Task<TaskCompletionSource> StartUninterruptibleRecognitionAsync()
+    {
+        _engine.IgnoreCancellation = true;
+        var gate = await StartParkedRecognitionAsync();
+
+        // Recognizing 在入队时就置上了，须等工作线程真把请求取出来，否则关停会让它根本不被识别。
+        await _engine.Parked.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        return gate;
+    }
+
+    /// <summary>
+    /// 摆出「识别在途 → 关停开始 → 识别才落地」，等关停返回。
+    /// 返回关停开始前的事件条数，此后的事件全由这次落地引起。
+    /// </summary>
+    private async Task<int> LandAfterShutdownBeginsAsync()
+    {
+        var gate = await StartUninterruptibleRecognitionAsync();
+        var before = Events().Count;
+
+        // 先不 await：ShutdownAsync 第一段同步代码就已停止受理，拿到任务时关停已经开始。
+        var shutdown = _controller.ShutdownAsync(TimeSpan.FromSeconds(5));
+
+        gate.SetResult();
+
+        // 关停要等工作线程退出，故它返回时落地已经走完。
+        await shutdown;
+
+        // 阳性对照：引擎确实在关停开始之后交出了结果，否则「没有事件」可能只是落地根本没发生。
+        Assert.Single(_engine.CompletionThreadIds);
+
+        return before;
     }
 
     /// <summary>录音中换了设备、带着「录音设备已变更」进识别，并让识别挂在返回的闸门上。</summary>
@@ -606,5 +662,68 @@ public sealed class SessionControllerResilienceTests : IAsyncDisposable
 
         Assert.False(_capture.IsCapturing);
         Assert.Equal(0, _engine.RecognizeCallCount);
+    }
+
+    /// <summary>
+    /// 原生解码打断不了，识别可能在关停掐掉失败计时器之后才失败。那时不许再进 Failed，
+    /// 更不许起一个没人再掐的计时器，到点又报一次 Idle，那时组合根已在拆。
+    /// </summary>
+    [Fact]
+    public async Task Shutdown_ThenAnUninterruptibleRecognitionFails_RaisesNothingAndLeavesNoFailedTimer()
+    {
+        _engine.NextException = new InvalidOperationException("模型炸了");
+
+        var before = await LandAfterShutdownBeginsAsync();
+
+        Assert.Empty(Events()[before..]);
+
+        _time.Advance(FailedDisplayDuration * 2);
+
+        Assert.Empty(Events()[before..]);
+    }
+
+    /// <summary>同上，识别结果为空那一路。</summary>
+    [Fact]
+    public async Task Shutdown_ThenAnUninterruptibleRecognitionComesBackEmpty_RaisesNothingAndLeavesNoFailedTimer()
+    {
+        _engine.NextResult = string.Empty;
+
+        var before = await LandAfterShutdownBeginsAsync();
+
+        Assert.Empty(Events()[before..]);
+
+        _time.Advance(FailedDisplayDuration * 2);
+
+        Assert.Empty(Events()[before..]);
+    }
+
+    /// <summary>同上，上屏成功那一路：不许再迁回静止态。上屏本身发不发生不归本条管。</summary>
+    [Fact]
+    public async Task Shutdown_ThenAnUninterruptibleRecognitionInjects_RaisesNothing()
+    {
+        _engine.NextResult = "关停前说完的一句";
+
+        var before = await LandAfterShutdownBeginsAsync();
+
+        Assert.Empty(Events()[before..]);
+    }
+
+    /// <summary>上面几条的阳性对照：同样的引擎配置不关停，失败落地照常进 Failed、到点回 Idle。</summary>
+    [Fact]
+    public async Task WithoutShutdown_AnUninterruptibleRecognitionFails_ShowsFailedThenReturnsToIdle()
+    {
+        _engine.NextException = new InvalidOperationException("模型炸了");
+        var gate = await StartUninterruptibleRecognitionAsync();
+        var before = Events().Count;
+
+        var failed = ExpectTransitionTo(SessionState.Failed);
+        gate.SetResult();
+        await failed;
+
+        var idle = ExpectTransitionTo(SessionState.Idle);
+        AdvanceUntilFailedDisplayEnds();
+        await idle;
+
+        Assert.Equal([SessionState.Failed, SessionState.Idle], Events()[before..].Select(e => e.State));
     }
 }

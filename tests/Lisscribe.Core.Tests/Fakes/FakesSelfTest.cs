@@ -96,6 +96,26 @@ public sealed class FakesSelfTest
     }
 
     [Fact]
+    public async Task FakeAsrEngine_IgnoreCancellation_KeepsTheGateShutWhenTheTokenIsCancelled()
+    {
+        using var cts = new CancellationTokenSource();
+        var engine = new FakeAsrEngine { IgnoreCancellation = true, Gate = new TaskCompletionSource() };
+
+        var pending = engine.RecognizeAsync(new float[1], cts.Token);
+        await engine.Parked.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        await cts.CancelAsync();
+
+        // 「关停后才落地」那组测试全靠这一点：取消打不开闸门，放行之后照常交出结果。
+        Assert.False(pending.IsCompleted);
+        Assert.False(engine.WasCancelledMidFlight);
+
+        engine.Gate.SetResult();
+
+        Assert.Equal("识别结果", await pending);
+    }
+
+    [Fact]
     public async Task FakeAsrEngine_CompleteOnNewThread_FinishesOnAnotherThread()
     {
         var engine = new FakeAsrEngine { CompleteOnNewThread = true };

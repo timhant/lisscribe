@@ -854,7 +854,7 @@ public sealed class SessionController : IAsyncDisposable
                 // 真实的 KEYUP 直接吞掉，麦克风从此不再停止，会话永久卡死。
                 if (result == InjectResult.Ok)
                 {
-                    if (State == SessionState.Recognizing)
+                    if (IsRecognitionStillMine())
                     {
                         EnterRest(null);
                     }
@@ -882,16 +882,32 @@ public sealed class SessionController : IAsyncDisposable
     }
 
     /// <summary>
-    /// 调用方须已持有 _gate。仅当 State 仍是本次识别自己留下的 Recognizing 时才转入 Failed；
-    /// 否则说明用户已开始更新一代的录音／识别，不得覆盖它。
+    /// 调用方须已持有 _gate。仅当本次识别的落地仍归它管时才转入 Failed，见 <see cref="IsRecognitionStillMine"/>。
     /// 异常本身已经在调用处记过日志，这里静默放弃展示失败提示不会丢信息。
     /// </summary>
     private void EnterFailedIfStillMine(string message)
     {
-        if (State == SessionState.Recognizing)
+        if (IsRecognitionStillMine())
         {
             EnterFailed(message);
         }
+    }
+
+    /// <summary>
+    /// 调用方须已持有 _gate。识别落地能否改状态，七处落地都经这里，守卫只写这一份。
+    /// 关停已开始则不能：原生解码打断不了，落地可能晚于关停掐掉失败计时器，那时再起的计时器已无人掐。
+    /// 否则仅当 State 仍是本次识别自己留下的 Recognizing 时才能，不是则说明用户已开始更新一代的录音或识别，不得覆盖它。
+    /// </summary>
+    private bool IsRecognitionStillMine()
+    {
+        if (!_acceptingWork)
+        {
+            _logger.LogInformation("关停已开始，丢弃本次识别的落地");
+
+            return false;
+        }
+
+        return State == SessionState.Recognizing;
     }
 
     /// <summary>
