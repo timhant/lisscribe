@@ -13,6 +13,9 @@
          但走的是两条完全不同的路：这一条编进 PE 的资源节，托盘那条是 avares 资源。
          少了任一条，症状都是「图标没了」，而查起来的地方不一样。 -->
     <ApplicationIcon>Assets/lisscribe.ico</ApplicationIcon>
+    <!-- 只留中性语言的资源：否则运行时包会铺出 13 个语言目录（cs\、tr\、zh-Hans\ 等），装的全是
+         本程序用不上的 Windows Forms 资源。 -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />

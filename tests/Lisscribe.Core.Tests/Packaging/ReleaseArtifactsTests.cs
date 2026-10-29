@@ -395,6 +395,32 @@ public sealed class ReleaseArtifactsTests
     }
 
     /// <summary>
+    /// **包里不带多语言资源目录（<c>cs\</c>、<c>tr\</c>、<c>zh-Hans\</c> 等）。**
+    /// </summary>
+    /// <remarks>
+    /// 0.4.0 打出的包里有 13 个这种目录，装的全是 Windows Forms 的 <c>*.resources.dll</c>（52 个，约 8.5MB），
+    /// 而本程序一行 Windows Forms 也没用——它们是随运行时包一起铺进来的。按文件后缀判，不按目录名单判：
+    /// 名单只能列出见过的语言，下回运行时多一种语言就漏过去了。
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(EveryArchiveFlavour))]
+    public void TheProducedArchive_CarriesNoSatelliteResourceAssemblies(string flavour)
+    {
+        var root = $"lisscribe-{DeclaredVersion()}-win-x64{flavour}";
+        var archive = InRepo($"dist/{root}.zip");
+
+        Assert.SkipWhen(!File.Exists(archive), $"dist 下没有 {root}.zip，先跑 scripts\\publish.ps1");
+
+        using var zip = ZipFile.OpenRead(archive);
+        var satellites = zip.Entries
+            .Select(entry => entry.FullName)
+            .Where(name => name.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.True(satellites.Length == 0, $"包里有 {satellites.Length} 个多语言资源，例如 {satellites.FirstOrDefault()}");
+    }
+
+    /// <summary>
     /// 三种发行包形态的后缀。<b>列在这里而不是数 <c>dist\</c> 里有什么</b>——
     /// 拿实际产出划定受检范围，publish 少打了一档它照样全绿。
     /// </summary>

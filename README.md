@@ -47,9 +47,9 @@ Three downloads on the [Releases](https://github.com/timhant/lisscribe/releases)
 
 | Download | Size | What's inside |
 | --- | --- | --- |
-| `lisscribe-<version>-win-x64-sense-voice.zip` | ~218 MB | App **and** the default model. Unzip, run, done. |
-| `lisscribe-<version>-win-x64-qwen3.zip` | ~871 MB | App and the high-accuracy model (better at Cantonese, mixed Chinese/English, noise). |
-| `lisscribe-<version>-win-x64.zip` | ~65 MB | App only. Fetch a model yourself, per `models\README.txt`. |
+| `lisscribe-<version>-win-x64-sense-voice.zip` | ~216 MB | App **and** the default model. Unzip, run, done. |
+| `lisscribe-<version>-win-x64-qwen3.zip` | ~869 MB | App and the high-accuracy model (better at Cantonese, mixed Chinese/English, noise). |
+| `lisscribe-<version>-win-x64.zip` | ~63 MB | App only. Fetch a model yourself, per `models\README.txt`. |
 
 Then:
 
@@ -183,9 +183,9 @@ zips and live here as [`licenses/FunASR-MODEL_LICENSE.txt`](licenses/FunASR-MODE
 
 | 下载 | 体积 | 里面有什么 |
 | --- | --- | --- |
-| `lisscribe-<版本>-win-x64-sense-voice.zip` | 约 218 MB | 程序**加**默认档模型。解压就能用。 |
-| `lisscribe-<版本>-win-x64-qwen3.zip` | 约 871 MB | 程序加高精度档模型（粤语、中英混说、嘈杂环境更准）。 |
-| `lisscribe-<版本>-win-x64.zip` | 约 65 MB | 只有程序，模型按包里 `models\README.txt` 自己取。 |
+| `lisscribe-<版本>-win-x64-sense-voice.zip` | 约 216 MB | 程序**加**默认档模型。解压就能用。 |
+| `lisscribe-<版本>-win-x64-qwen3.zip` | 约 869 MB | 程序加高精度档模型（粤语、中英混说、嘈杂环境更准）。 |
+| `lisscribe-<版本>-win-x64.zip` | 约 63 MB | 只有程序，模型按包里 `models\README.txt` 自己取。 |
 
 然后：
 
