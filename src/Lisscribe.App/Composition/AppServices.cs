@@ -20,17 +20,11 @@ namespace Lisscribe.App.Composition;
 /// 组合根：把真正的平台实现 new 出来，接上 <see cref="AppWiring"/>，再按顺序启停。
 /// 本类刻意不含任何判断逻辑——凡是「什么情况下该怎样」的规矩都住在别处（状态机、
 /// <see cref="AppWiring"/>、<see cref="TrayMenuModel"/>、<see cref="TranscriptionCoordinator"/>）。
-/// 这里只剩「谁在谁之前」，而那件事有测试盯不住的部分，故顺序上的每一条都写明了理由。
+/// 退出与重启的先后住在 <see cref="ShutdownSequence"/> 与 <see cref="RestartFlow"/>，有测试盯着。
+/// 这里只剩启动时的「谁在谁之前」，而那件事有测试盯不住的部分，故顺序上的每一条都写明了理由。
 /// </summary>
 public sealed class AppServices : IAsyncDisposable
 {
-    /// <summary>
-    /// 退出与重启时等转写收尾的上限。取消最多等当前一段识别完，Qwen3 一段 20 秒音频在本机约 4 秒，留一倍余量。
-    /// 退出总共至多 10 秒等转写加 10 秒等状态机的识别工作线程，仍在后继进程等本进程退出的 30 秒之内
-    /// （Program.RestartWaitTimeout）。
-    /// </summary>
-    private static readonly TimeSpan TranscriptionStopTimeout = TimeSpan.FromSeconds(10);
-
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILogger<AppServices> _logger;
@@ -62,15 +56,15 @@ public sealed class AppServices : IAsyncDisposable
 
     private readonly AppWiring _wiring;
 
-    private readonly RestartSequence _restartSequence;
-
     private readonly TranscriptionCoordinator _transcription;
+
+    private readonly RestartFlow _restart;
+
+    private readonly ShutdownSequence _shutdown;
 
     private SettingsWindow? _settingsWindow;
 
     private RestartConfirmWindow? _restartWindow;
-
-    private int _shutdownStarted;
 
     public AppServices(string baseDirectory, Action requestExit)
     {
@@ -180,7 +174,7 @@ public sealed class AppServices : IAsyncDisposable
 
         // 换档要重启才生效，而重启就是「拉起后继进程 + 请求本进程退出」这两步，顺序不可换。
         // requestExit 与托盘「退出」走的是同一个，故收尾路径也是同一条。
-        _restartSequence = new RestartSequence(new ProcessAppRestarter(), requestExit);
+        var restartSequence = new RestartSequence(new ProcessAppRestarter(), requestExit);
 
         // 转写用的就是热键听写那个引擎，不另加载一份（设计 §2）。中文数字转换取运行中那份选项，与热键链路同一口径。
         var transcriber = new FileTranscriber(
@@ -201,6 +195,24 @@ public sealed class AppServices : IAsyncDisposable
             setTrayTranscribing: SetTrayTranscribing,
             TimeProvider.System,
             _loggerFactory.CreateLogger<TranscriptionCoordinator>());
+
+        // 投递与 AppWiring 同一个形状：重启要在 UI 线程上请求退出，而等转写的那段跑在线程池上。
+        _restart = new RestartFlow(
+            isTranscribing: () => _transcription.IsTranscribing,
+            stopTranscription: _transcription.CancelAndWaitAsync,
+            tryRestart: restartSequence.TryRestart,
+            postToUi: action => Dispatcher.UIThread.Post(action),
+            showNotice: ShowNotice,
+            _loggerFactory.CreateLogger<RestartFlow>());
+
+        // 接线用 Dispose 而不是 Disconnect：还得掐掉那个在途的通知计时器，否则它会在 Avalonia 已经开始拆平台层之后
+        // Post 一次 Window.Hide()。日志工厂排在最后，前面各步出的错还记得下来。
+        _shutdown = new ShutdownSequence(
+            detachTray: _tray.Detach,
+            stopTranscription: _transcription.CancelAndWaitAsync,
+            shutdownController: _controller.ShutdownAsync,
+            releaseInOrder: [_wiring, _hook, _monitor, _capture, _loggerFactory],
+            _loggerFactory.CreateLogger<ShutdownSequence>());
     }
 
     public string LogDirectory { get; }
@@ -263,42 +275,10 @@ public sealed class AppServices : IAsyncDisposable
     }
 
     /// <summary>
-    /// 收尾。只跑一次：托盘的「退出」与窗口关闭都可能走到这里。
-    /// 顺序：先摘托盘（<c>IsVisible = false</c> 再 Dispose），再取消在途转写并等它收尾，再停状态机
-    /// （它自己会按定好的次序停采集、等在途识别、最后 Dispose 引擎），最后才拆事件与日志。反过来做会让
-    /// 收尾过程中的状态变更打到已经关掉的窗口上。
+    /// 收尾。顺序、超时与「只跑一次」都在 <see cref="ShutdownSequence"/> 里。本方法在 UI 线程上被同步等着，
+    /// 那边每个 await 都不回 UI 线程。
     /// </summary>
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _shutdownStarted, 1) != 0)
-        {
-            return;
-        }
-
-        _tray.Detach();
-
-        // 转写必须先停：ShutdownAsync 会 Dispose 引擎，而转写正用着它。本方法在 UI 线程上被同步等着，
-        // 故协调器的收尾不回 UI 线程。等不到也照常往下关停，为什么安全见 CancelAndWaitAsync 的注释。
-        await _transcription.CancelAndWaitAsync(TranscriptionStopTimeout).ConfigureAwait(false);
-
-        try
-        {
-            await _controller.ShutdownAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "状态机收尾失败，继续拆其余部件。");
-        }
-
-        // Dispose 而不是 Disconnect：还得掐掉那个在途的通知计时器，否则它会在 Avalonia 已经开始
-        // 拆平台层之后 Post 一次 Window.Hide()。
-        _wiring.Dispose();
-
-        _hook.Dispose();
-        _monitor.Dispose();
-        _capture.Dispose();
-        _loggerFactory.Dispose();
-    }
+    public ValueTask DisposeAsync() => new(_shutdown.RunAsync());
 
     /// <summary>
     /// 录音上限随引擎档位走（<see cref="SessionOptions.CreateFor"/>），别改回 CreateDefault：
@@ -443,8 +423,8 @@ public sealed class AppServices : IAsyncDisposable
             return;
         }
 
-        // 有转写在跑就在确认窗里说它会被取消（设计 §4.6）。点「稍后」退回的红条不加这句：那时不重启，转写照跑。
-        var window = new RestartConfirmWindow(RestartPrompt.ConfirmMessageFor(_transcription.IsTranscribing));
+        // 文案由 RestartFlow 按此刻有没有转写在跑给出。点「稍后」退回的红条不加那句：那时不重启，转写照跑。
+        var window = new RestartConfirmWindow(_restart.ConfirmMessage);
 
         _restartWindow = window;
 
@@ -459,41 +439,12 @@ public sealed class AppServices : IAsyncDisposable
                 return;
             }
 
-            // 不 await：这里是关窗回调，跑在 UI 线程上。异常全在 RestartAfterTranscriptionAsync 内部收住。
-            _ = RestartAfterTranscriptionAsync();
+            // 不 await：这里是关窗回调，跑在 UI 线程上。先等转写再重启，异常全在 RestartFlow 内部收住。
+            _ = _restart.RunAsync();
         };
 
         window.Show();
     });
-
-    /// <summary>
-    /// 用户点了「立即重启」：先取消在途转写并等它收尾，再拉起后继进程。重启走的是退出那条路，
-    /// 退出时也会先等转写，但那时托盘已摘、悬浮条也快没了，在这里先停掉，转写收尾的状态变更还有地方显示。
-    /// 等完后投回 UI 线程再重启：请求退出要在 UI 线程上发。
-    /// </summary>
-    private async Task RestartAfterTranscriptionAsync()
-    {
-        try
-        {
-            // 等不到也照样重启：这一段在拉起后继进程之前，不占后继进程那 30 秒。
-            await _transcription.CancelAndWaitAsync(TranscriptionStopTimeout).ConfigureAwait(false);
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (!_restartSequence.TryRestart(out var error))
-                {
-                    // 拉不起来时本进程原样活着，故这里还能报得出话来。
-                    _logger.LogError("重启 lisscribe 失败：{Error}", error);
-                    ShowNotice($"重启失败：{error}");
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "重启前停止转写失败。");
-            ShowNotice($"重启失败：{ex.Message}");
-        }
-    }
 
     /// <summary>
     /// 托盘「转写音频文件…」/「取消转写」。不 await：托盘回调跑在 UI 线程上，返回的任务要等用户选完文件、
