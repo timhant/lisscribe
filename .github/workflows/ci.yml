@@ -71,11 +71,14 @@ jobs:
       # 模型测试与确定性那批分开跑。**这里也要排除 Benchmark** ——
       # 它同时带着 RequiresModel 这个 trait，只写 --filter-trait 会把它一起捞进来。
       #
-      # --ignore-exit-code 8 是给「零测试」那个退出码开的：带模型 trait 的测试全在
-      # Core.Tests，另外两个项目一条也匹配不上，而测试主机把「Zero tests ran」判成失败
-      # （实测 Total: 0 却打 Failed!）。不忽略它，这一步每次都红，红得毫无信息量，
+      # --ignore-exit-code 8 是给「零测试」那个退出码开的：三个测试项目都有带模型 trait 的测试，
+      # 但模型没下下来时它们全部 Skip，测试主机把这种「Zero tests ran」判成失败
+      # （实测 Total: 0 却打 Failed!）。不忽略它，下载一失手这一步就红，红得毫无信息量，
       # 真出问题时反而没人分得出。**只忽略 8 这一个码**：真有测试失败走的是别的码，
       # 照样红——阳性对照验过（临时塞一条必败的测试，带着这个开关仍然 EXIT=1）。
+      #
+      # 文件转写那几条（Platform 与 App 两处）同时带 RequiresMediaFoundation：它们要系统的
+      # Media Foundation 解码 m4a，与上面确定性那批里的解码器测试是同一个前提。
       - name: Test (model quality)
         continue-on-error: true
         run: >
