@@ -390,6 +390,89 @@ public sealed class AppWiringTests : IAsyncDisposable
     }
 
     /// <summary>
+    /// 退出时有转写在跑：取消转写让状态机报出 Idle，这条已投递、UI 线程还没跑到它时收了尾。
+    /// 闭包跑起来时不许再动悬浮条，否则它在 Avalonia 拆平台层之后同步驱动 <c>Window.Hide()</c>。
+    /// 退订管不到已经排上队的闭包。
+    /// </summary>
+    [Fact]
+    public void AStatusChangePostedJustBeforeDispose_LeavesTheOverlayAlone_WhenTheUiThreadGetsToItAfterwards()
+    {
+        QueueTheIdleThatEndsATranscription();
+
+        _wiring.Dispose();
+
+        // 闭包确实跑了，是它自己没动手。
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 0%", _overlay.Message);
+        Assert.True(_overlay.IsVisible);
+    }
+
+    /// <summary>阳性对照：同样的步骤不收尾，那条 Idle 确实改了悬浮条。少了它，上一条的「没变」可能只是事件没投进来。</summary>
+    [Fact]
+    public void AStatusChangePostedWithoutDispose_HidesTheOverlay_WhenTheUiThreadGetsToIt()
+    {
+        QueueTheIdleThatEndsATranscription();
+
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(SessionState.Idle, _overlay.State);
+        Assert.Equal(string.Empty, _overlay.Message);
+        Assert.False(_overlay.IsVisible);
+    }
+
+    /// <summary>录音中报来的一格音量已投递、UI 线程还没跑到它时收了尾：闭包跑起来时不许再写音量。</summary>
+    [Fact]
+    public void AVolumeReadingPostedJustBeforeDispose_LeavesTheOverlayAlone_WhenTheUiThreadGetsToItAfterwards()
+    {
+        QueueAVolumeReading();
+
+        _wiring.Dispose();
+
+        // 闭包确实跑了，是它自己没动手。
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(0d, _overlay.Volume);
+    }
+
+    /// <summary>阳性对照：同样的步骤不收尾，那格音量确实上了悬浮条。</summary>
+    [Fact]
+    public void AVolumeReadingPostedWithoutDispose_MovesTheVolume_WhenTheUiThreadGetsToIt()
+    {
+        QueueAVolumeReading();
+
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(0.5d, _overlay.Volume, tolerance: 0.001d);
+    }
+
+    /// <summary>倒数的一声已投递、UI 线程还没跑到它时收了尾：闭包跑起来时不许再写剩余秒数。</summary>
+    [Fact]
+    public void ACountdownTickPostedJustBeforeDispose_LeavesTheOverlayAlone_WhenTheUiThreadGetsToItAfterwards()
+    {
+        QueueACountdownTick();
+
+        _wiring.Dispose();
+
+        // 闭包确实跑了，是它自己没动手。
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Null(_overlay.RemainingSeconds);
+    }
+
+    /// <summary>阳性对照：同样的步骤不收尾，那一声倒数确实上了悬浮条。</summary>
+    [Fact]
+    public void ACountdownTickPostedWithoutDispose_ShowsTheSeconds_WhenTheUiThreadGetsToIt()
+    {
+        QueueACountdownTick();
+
+        Assert.Equal(1, _poster.Drain());
+
+        Assert.Equal(5, _overlay.RemainingSeconds);
+    }
+
+    /// <summary>
     /// **转写中弹的通知，到点后要回到转写进度，不能回到空闲。** 转写一跑几分钟，期间任何一条通知
     /// （例如关配置窗时热键重装失败）过几秒就把悬浮条整个藏掉的话，转写还在跑，进度从此看不见。
     ///
@@ -661,6 +744,63 @@ public sealed class AppWiringTests : IAsyncDisposable
         }
 
         Assert.Fail($"等待状态机抵达 {expected} 超时，当前为 {_controller.State}");
+    }
+
+    /// <summary>转写进行中、悬浮条正显示着它，再让转写正常结束：那条 Idle 已投递，尚未执行。</summary>
+    private void QueueTheIdleThatEndsATranscription()
+    {
+        _wiring.Connect();
+
+        Assert.True(_controller.TryBeginTranscription(out _));
+        _poster.Drain();
+
+        // 起点与 Idle 那条三项全不同，哪一项被改都看得出。
+        Assert.Equal(SessionState.Transcribing, _overlay.State);
+        Assert.Equal("转写中 0%", _overlay.Message);
+        Assert.True(_overlay.IsVisible);
+
+        var postsBefore = _poster.PostCount;
+
+        _controller.EndTranscription(failure: null);
+
+        // 状态机确实报了 Idle，闭包排上了队。
+        Assert.Equal(SessionState.Idle, _controller.State);
+        Assert.Equal(postsBefore + 1, _poster.PostCount);
+    }
+
+    /// <summary>录音中喂一包全 0.5 的样本：那格音量已投递，尚未执行。</summary>
+    private void QueueAVolumeReading()
+    {
+        _wiring.Connect();
+
+        _hook.RaisePressed();
+        _poster.Drain();
+
+        var postsBefore = _poster.PostCount;
+
+        _capture.PushSamples([.. Enumerable.Repeat(0.5f, 1600)]);
+
+        Assert.Equal(postsBefore + 1, _poster.PostCount);
+        Assert.Equal(0d, _overlay.Volume);
+    }
+
+    /// <summary>录音推到「还剩 5 秒」：那一声倒数已投递，尚未执行。逐跳推的理由见 <see cref="ACountdownTick_ReachesTheOverlay_ButOnlyAfterThePosterRunsIt"/>。</summary>
+    private void QueueACountdownTick()
+    {
+        _wiring.Connect();
+
+        _hook.RaisePressed();
+        _poster.Drain();
+
+        var postsBefore = _poster.PostCount;
+
+        for (var i = 0; i < 275; i++)
+        {
+            _time.Advance(SessionOptions.CreateDefault().WatchdogInterval);
+        }
+
+        Assert.Equal(postsBefore + 1, _poster.PostCount);
+        Assert.Null(_overlay.RemainingSeconds);
     }
 
     /// <summary>

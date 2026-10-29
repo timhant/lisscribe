@@ -103,8 +103,8 @@ public sealed class AppWiring : IDisposable
     }
 
     /// <summary>
-    /// 拆事件，并掐掉在途的通知计时器。后半句少不得：收尾之后 Avalonia 就要拆平台层了，
-    /// 而那个计时器投过去的活儿会同步驱动 <c>Window.Hide()</c>。
+    /// 拆事件，掐掉在途的通知计时器，并立下 <see cref="_disposed"/>：之后的通知不再投递，已排上队的闭包跑起来也不再写悬浮条。
+    /// 后两件少不得：收尾之后 Avalonia 就要拆平台层，写悬浮条会同步驱动 <c>Window.Show()</c> / <c>Hide()</c>，而退订管不到已投出去的闭包。
     /// </summary>
     public void Dispose()
     {
@@ -211,13 +211,19 @@ public sealed class AppWiring : IDisposable
         _overlay.State == SessionState.Failed && _overlay.Message == notice;
 
     /// <summary>
-    /// 状态机的每一次迁移都先记下，再决定上不上屏。只压住「转写中」：进度每识别完一段就可能来一条
+    /// 收尾之前，状态机的每一次迁移都先记下，再决定上不上屏。只压住「转写中」：进度每识别完一段就可能来一条
     /// （SenseVoice 一段不到半秒），照旧上屏的话通知一闪就没了。其余迁移照旧顶掉通知——开始录音、
     /// 状态机自己的失败、转写结束，都是用户此刻更该看见的事。
     /// </summary>
     private void OnStatusChanged(object? sender, SessionStatusEventArgs e) =>
         _postToUi(() =>
         {
+            // 退订管不到已排上队的闭包：收尾若落在投递之后、执行之前，既不上屏也不必再记。
+            if (IsDisposed())
+            {
+                return;
+            }
+
             // 先记后判：被压住的那条也得记下，通知到点后回到的正是它。
             _lastStatus = (e.State, e.Message);
 
@@ -233,12 +239,30 @@ public sealed class AppWiring : IDisposable
         });
 
     private void OnVolumeChanged(object? sender, float volume) =>
-        _postToUi(() => _overlay.Volume = volume);
+        _postToUi(() =>
+        {
+            // 收尾可能落在投递之后、执行之前。
+            if (IsDisposed())
+            {
+                return;
+            }
+
+            _overlay.Volume = volume;
+        });
 
     /// <summary>
     /// 录音快到上限时的倒数。在看门狗计时器线程上引发，与另外两条同一条禁令。
     /// 清空由 <c>OverlayViewModel.ApplyState</c> 顺手做掉，这里不必发「结束」。
     /// </summary>
     private void OnCountdown(object? sender, int seconds) =>
-        _postToUi(() => _overlay.RemainingSeconds = seconds);
+        _postToUi(() =>
+        {
+            // 收尾可能落在投递之后、执行之前。
+            if (IsDisposed())
+            {
+                return;
+            }
+
+            _overlay.RemainingSeconds = seconds;
+        });
 }
