@@ -577,7 +577,7 @@ public sealed class AppWiringTests : IAsyncDisposable
     ///
     /// <para>
     /// <b>通知时长须短于状态机的失败提示。</b>生产两者同长，状态机的计时器先到点、先把红条换成静止态，
-    /// 收场那一处清理轮不到出场；时长短一半，它才是唯一的防线。
+    /// 收场那一处清理轮不到出场。时长短一半，它才是唯一的防线。
     /// </para>
     /// </summary>
     [Fact]
